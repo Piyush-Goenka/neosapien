@@ -1,6 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neo_sapien/app/router/app_section.dart';
+import 'package:neo_sapien/core/utils/byte_count_formatter.dart';
 import 'package:neo_sapien/features/home/presentation/widgets/overview_card.dart';
+import 'package:neo_sapien/features/transfers/application/transfer_batch_action_controller.dart';
+import 'package:neo_sapien/features/transfers/application/transfer_draft_controller.dart';
+import 'package:neo_sapien/features/transfers/domain/entities/network_policy.dart';
+import 'package:neo_sapien/features/transfers/domain/entities/transfer_batch.dart';
+import 'package:neo_sapien/features/transfers/domain/entities/transfer_direction.dart';
+import 'package:neo_sapien/features/transfers/domain/entities/transfer_status.dart';
 import 'package:neo_sapien/shared/presentation/widgets/app_scaffold.dart';
 
 class InboxScreen extends StatelessWidget {
@@ -16,29 +24,90 @@ class InboxScreen extends StatelessWidget {
   }
 }
 
-class _InboxScreenBody extends StatelessWidget {
+class _InboxScreenBody extends ConsumerWidget {
   const _InboxScreenBody();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final transferBatches = ref.watch(transferBatchesProvider);
+    final actionState = ref.watch(transferBatchActionControllerProvider);
+    final actionController = ref.read(
+      transferBatchActionControllerProvider.notifier,
+    );
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-      children: const <Widget>[
+      children: <Widget>[
         OverviewCard(
           eyebrow: 'Recipient experience',
           title:
-              'Incoming transfer discovery is reserved for a dedicated inbox.',
+              'Incoming transfer discovery is now backed by the shared transfer repository.',
           subtitle:
-              'This surface will become the home for accept/reject, download '
-              'progress, hash verification, and save-to-device actions.',
+              'Firestore-backed transfer metadata can now appear here in near '
+              'real time when Firebase is configured. Accept/reject is wired; '
+              'download and save flows are the next slice.',
           children: <Widget>[
-            _InboxRow(label: 'FCM notification deep links'),
-            _InboxRow(label: 'Queued transfer acceptance with TTL visibility'),
-            _InboxRow(label: 'Download progress and recovery after relaunch'),
+            if (actionState.errorMessage != null)
+              _InlineMessage(
+                message: actionState.errorMessage!,
+                isError: true,
+              ),
+            transferBatches.when(
+              data: (batches) {
+                final incomingBatches = batches
+                    .where((batch) => batch.direction == TransferDirection.incoming)
+                    .toList(growable: false);
+                if (incomingBatches.isEmpty) {
+                  return const _EmptyInboxState();
+                }
+
+                return Column(
+                  children: <Widget>[
+                    for (var index = 0;
+                        index < incomingBatches.length;
+                        index += 1) ...<Widget>[
+                      _IncomingBatchCard(
+                        batch: incomingBatches[index],
+                        isActionPending: actionState.isPending(
+                          incomingBatches[index].id,
+                        ),
+                        onAccept: () => actionController.accept(
+                          incomingBatches[index].id,
+                        ),
+                        onReject: () => actionController.reject(
+                          incomingBatches[index].id,
+                        ),
+                      ),
+                      if (index < incomingBatches.length - 1)
+                        const SizedBox(height: 12),
+                    ],
+                  ],
+                );
+              },
+              loading: () => const LinearProgressIndicator(),
+              error: (error, stackTrace) => _InlineMessage(
+                message: error.toString(),
+                isError: true,
+              ),
+            ),
           ],
         ),
-        SizedBox(height: 16),
-        OverviewCard(
+        const SizedBox(height: 16),
+        const OverviewCard(
+          eyebrow: 'Next in queue',
+          title: 'Transport and receiver-side persistence are still ahead.',
+          subtitle:
+              'This inbox now proves cross-device metadata arrival and recipient '
+              'decision flow. The next slice connects upload initiation, then '
+              'actual download/save behavior.',
+          children: <Widget>[
+            _InboxRow(label: 'Upload initiation on accepted outgoing batches'),
+            _InboxRow(label: 'Recipient download and save-to-device flow'),
+            _InboxRow(label: 'Push notifications and deep links'),
+          ],
+        ),
+        const SizedBox(height: 16),
+        const OverviewCard(
           eyebrow: 'Failure handling',
           title:
               'Receiver-side resilience is designed into the contract early.',
@@ -52,6 +121,139 @@ class _InboxScreenBody extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+class _EmptyInboxState extends StatelessWidget {
+  const _EmptyInboxState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'No incoming transfers yet. When Firebase is configured and another '
+      'device creates a transfer for this user, it will appear here without a manual refresh.',
+      style: Theme.of(context).textTheme.bodyMedium,
+    );
+  }
+}
+
+class _InlineMessage extends StatelessWidget {
+  const _InlineMessage({required this.message, this.isError = false});
+
+  final String message;
+  final bool isError;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Icon(
+          isError ? Icons.error_outline_rounded : Icons.info_outline_rounded,
+          color: isError ? colorScheme.error : colorScheme.primary,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            message,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: isError ? colorScheme.error : colorScheme.onSurface,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _IncomingBatchCard extends StatelessWidget {
+  const _IncomingBatchCard({
+    required this.batch,
+    required this.isActionPending,
+    required this.onAccept,
+    required this.onReject,
+  });
+
+  final TransferBatch batch;
+  final bool isActionPending;
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    final canDecide = batch.status == TransferStatus.awaitingAcceptance;
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  batch.senderCode?.displayValue ?? 'Unknown sender',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Chip(label: Text(_formatTransferStatus(batch.status))),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              Chip(
+                label: Text(
+                  '${batch.files.length} file${batch.files.length == 1 ? '' : 's'}',
+                ),
+              ),
+              Chip(label: Text(ByteCountFormatter.format(batch.totalBytes))),
+              Chip(label: Text(_networkPolicyLabel(batch.networkPolicy))),
+            ],
+          ),
+          const SizedBox(height: 12),
+          for (final file in batch.files) ...<Widget>[
+            Text(
+              '${file.name} • ${ByteCountFormatter.format(file.byteCount)}',
+            ),
+            const SizedBox(height: 4),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: !canDecide || isActionPending ? null : onAccept,
+                  icon: isActionPending
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check_circle_outline_rounded),
+                  label: const Text('Accept'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: !canDecide || isActionPending ? null : onReject,
+                  icon: const Icon(Icons.cancel_outlined),
+                  label: const Text('Reject'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -74,4 +276,30 @@ class _InboxRow extends StatelessWidget {
       ],
     );
   }
+}
+
+String _networkPolicyLabel(NetworkPolicy policy) {
+  return switch (policy) {
+    NetworkPolicy.confirmOnMetered => 'Confirm on metered',
+    NetworkPolicy.wifiOnly => 'Wi-Fi only',
+    NetworkPolicy.allowMetered => 'Allow metered',
+  };
+}
+
+String _formatTransferStatus(TransferStatus status) {
+  return switch (status) {
+    TransferStatus.awaitingAcceptance => 'Awaiting acceptance',
+    TransferStatus.pendingRecipient => 'Pending recipient',
+    TransferStatus.cancelled => 'Cancelled',
+    TransferStatus.completed => 'Completed',
+    TransferStatus.corrupted => 'Corrupted',
+    TransferStatus.downloading => 'Downloading',
+    TransferStatus.expired => 'Expired',
+    TransferStatus.failed => 'Failed',
+    TransferStatus.queued => 'Queued',
+    TransferStatus.rejected => 'Rejected',
+    TransferStatus.uploading => 'Uploading',
+    TransferStatus.validating => 'Validating',
+    TransferStatus.draft => 'Draft',
+  };
 }

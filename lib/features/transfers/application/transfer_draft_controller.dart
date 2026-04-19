@@ -2,7 +2,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neo_sapien/core/errors/app_exception.dart';
 import 'package:neo_sapien/core/providers/app_environment_provider.dart';
-import 'package:neo_sapien/features/recipients/domain/value_objects/recipient_code.dart';
+import 'package:neo_sapien/core/providers/firebase_providers.dart';
+import 'package:neo_sapien/features/identity/application/identity_controller.dart';
+import 'package:neo_sapien/features/recipients/domain/entities/recipient.dart';
+import 'package:neo_sapien/features/transfers/data/data_sources/firestore_transfer_remote_data_source.dart';
+import 'package:neo_sapien/features/transfers/data/repositories/hybrid_transfer_repository.dart';
 import 'package:neo_sapien/features/transfers/data/repositories/in_memory_transfer_repository.dart';
 import 'package:neo_sapien/features/transfers/data/services/file_picker_transfer_file_selector.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/network_policy.dart';
@@ -13,10 +17,24 @@ import 'package:neo_sapien/features/transfers/domain/services/transfer_draft_val
 import 'package:neo_sapien/features/transfers/domain/services/transfer_file_selector.dart';
 
 final transferRepositoryProvider = Provider<TransferRepository>((ref) {
-  final repository = InMemoryTransferRepository();
+  final environment = ref.watch(appEnvironmentProvider);
+  final repository = HybridTransferRepository(
+    localRepository: InMemoryTransferRepository(),
+    remoteDataSource: ref.watch(firestoreTransferRemoteDataSourceProvider),
+    firebaseBootstrapService: ref.watch(firebaseBootstrapServiceProvider),
+    firebaseAuthDataSource: ref.watch(firebaseAuthDataSourceProvider),
+    identityRepository: ref.watch(identityRepositoryProvider),
+    transferTtl: environment.transferTtl,
+  );
   ref.onDispose(repository.dispose);
   return repository;
 });
+
+final firestoreTransferRemoteDataSourceProvider =
+    Provider<FirestoreTransferRemoteDataSource>((ref) {
+      final firestore = ref.watch(firebaseFirestoreProvider);
+      return FirestoreTransferRemoteDataSource(firestore);
+    });
 
 final transferFileSelectorProvider = Provider<TransferFileSelector>((ref) {
   return const FilePickerTransferFileSelector();
@@ -162,7 +180,7 @@ class TransferDraftComposerController
     );
   }
 
-  Future<void> createDraft({required RecipientCode recipientCode}) async {
+  Future<void> createDraft({required Recipient recipient}) async {
     state = state.copyWith(
       isCreatingDraft: true,
       errorMessage: null,
@@ -174,7 +192,7 @@ class TransferDraftComposerController
           .read(transferDraftValidatorProvider)
           .validateOrThrow(state.selectedFiles);
       final batchId = await ref.read(transferRepositoryProvider).createDraft(
-        recipientCode: recipientCode,
+        recipient: recipient,
         files: state.selectedFiles,
         networkPolicy: state.networkPolicy,
       );

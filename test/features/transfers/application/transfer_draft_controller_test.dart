@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:neo_sapien/core/config/app_environment.dart';
 import 'package:neo_sapien/core/firebase/firebase_runtime_options.dart';
 import 'package:neo_sapien/core/providers/app_environment_provider.dart';
+import 'package:neo_sapien/features/recipients/domain/entities/recipient.dart';
 import 'package:neo_sapien/features/recipients/domain/value_objects/recipient_code.dart';
 import 'package:neo_sapien/features/transfers/application/transfer_draft_controller.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/network_policy.dart';
@@ -50,7 +51,10 @@ void main() {
 
     controller.updateNetworkPolicy(NetworkPolicy.wifiOnly);
     await controller.createDraft(
-      recipientCode: RecipientCode.fromRaw('WXYZ2345'),
+      recipient: Recipient(
+        code: RecipientCode.fromRaw('WXYZ2345'),
+        userId: 'recipient-uid',
+      ),
     );
 
     state = container.read(transferDraftComposerProvider);
@@ -105,8 +109,14 @@ final class _FakeTransferRepository implements TransferRepository {
   Future<void> cancelBatch(String batchId) async {}
 
   @override
+  Future<void> acceptBatch(String batchId) async {}
+
+  @override
+  Future<void> rejectBatch(String batchId) async {}
+
+  @override
   Future<String> createDraft({
-    required RecipientCode recipientCode,
+    required Recipient recipient,
     required List<TransferFile> files,
     required NetworkPolicy networkPolicy,
   }) async {
@@ -118,7 +128,7 @@ final class _FakeTransferRepository implements TransferRepository {
         files: files,
         createdAt: DateTime.utc(2026, 4, 19),
         networkPolicy: networkPolicy,
-        recipientCode: recipientCode,
+        recipientCode: recipient.code,
         totalBytes: files.fold<int>(0, (sum, file) => sum + file.byteCount),
       ),
     );

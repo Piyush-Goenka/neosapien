@@ -8,9 +8,9 @@
 - Secondary bonus: Native picker + native save flow if core is already green.
 - Current phase: M2 Core Transfer Happy Path
 - Overall status: [/]
-- Current focus: Build the first real transfer path on top of the new sender-side draft queue while keeping Firebase device validation queued as the remaining M1 proof gap.
+- Current focus: Use the shared transfer repository to make incoming transfers appear cross-device in the inbox, then connect actual upload initiation on top of that control-plane path.
 - Next milestone: M2 Core Transfer Happy Path
-- Latest blocker: Real Firebase project credentials and device validation are still missing, and the relay/upload path has not yet been connected to the new local draft queue.
+- Latest blocker: Real Firebase project credentials and device validation are still missing, and upload/download bytes are not yet connected to the new Firestore-backed transfer records.
 - Demo readiness: [ ] Not ready
 - Submission readiness: [ ] Not ready
 
@@ -33,12 +33,15 @@
 - Sender-side file picking, preflight validation, and local transfer-draft creation are now implemented with an outgoing draft list in the send flow.
 - Draft validation now enforces file-count, per-file, and total batch-size ceilings without loading file bytes into memory.
 - Transfer draft tests added for selection, draft creation, and large-file / invalid-source guardrails.
+- Firestore-backed transfer metadata creation is now wired through the shared transfer repository when Firebase is configured.
+- The inbox now renders live incoming transfer records and supports accept/reject decisions through the same repository contract.
+- Transfer action tests now cover recipient-side accept handling in addition to sender draft creation.
 - Foundation validation completed: `flutter analyze` passes and `flutter test` passes after the Firebase/addressing slice.
 
 ### Left To Do
 - Finish `M0 Foundation` by supplying real Firebase project values, validating Android+iPhone bootstrap, and confirming Firebase plugin setup on both platforms.
 - Finish `M1 Identity And Addressing`: validate server-backed short-code reservation on a real Firestore project, confirm collision handling behavior, and complete profile-sharing polish.
-- Implement `M2 Core Transfer Happy Path`: internet upload/download, sender and recipient progress, and cross-device transfer in both directions on top of the new local draft queue.
+- Implement `M2 Core Transfer Happy Path`: upload/download bytes, sender and recipient progress, and cross-device transfer in both directions on top of the new Firestore-backed transfer records.
 - Implement `M3 Resilience And Starred Cases`: offline recipient handling, network-drop recovery, large-file streaming, multi-file partial failure, permission denial, incoming-while-closed flow, and TLS-backed transport.
 - Implement `M4 Native Background Transfer Bonus`: Android foreground service/WorkManager plus iOS background `URLSession` through the Pigeon bridge.
 - Implement `M5 Cross-Platform Hardening`: disk-space checks, hash verification, save conflict handling, process-death recovery, network transition handling, and real-device parity validation.
@@ -79,7 +82,7 @@
   - Evidence: `HybridIdentityRepository` now attempts Firestore-backed registration with collision retries and persists the reserved code locally; still pending validation against a real Firebase project.
 - [/] Send one or more media files to a short code
   - Done when: Images, video, audio, documents, and arbitrary files can be sent in a single batch.
-  - Evidence: sender-side file picking, MIME inference, preflight validation, and local batch-draft creation are implemented through `TransferDraftComposerController`, `FilePickerTransferFileSelector`, and `InMemoryTransferRepository`; internet upload/delivery is still pending.
+  - Evidence: sender-side file picking, MIME inference, preflight validation, and transfer creation now flow through `TransferDraftComposerController`, `FilePickerTransferFileSelector`, and `HybridTransferRepository`; Firestore-backed transfer records and inbox discovery are implemented, while actual upload/download bytes are still pending.
 - [ ] Works across distance / internet relay
   - Done when: Transfers do not depend on proximity, LAN, or localhost.
   - Evidence:
@@ -183,7 +186,7 @@
 
 - [/] M2 Core Transfer Happy Path
   - Done when: Cross-device upload/download works in both directions with progress and final statuses.
-  - Evidence: sender-side file selection, preflight validation, network-policy choice, local batch-draft creation, and outgoing-draft visibility are now implemented and covered by passing analyzer/tests; relay-backed upload/download and recipient-side flow are still pending.
+  - Evidence: sender-side file selection, preflight validation, network-policy choice, Firestore-backed transfer creation, outgoing visibility, live inbox discovery, and accept/reject actions are now implemented and covered by passing analyzer/tests; relay-backed upload/download and progress are still pending.
 
 - [ ] M3 Resilience And Starred Cases
   - Done when: All starred edge cases are implemented and verified on both platforms.
@@ -238,9 +241,9 @@
 - [ ] Sender progress UI
   - Done when: Per-file and aggregate states are visible and actionable.
   - Evidence:
-- [ ] Recipient inbox and accept/reject flow
+- [x] Recipient inbox and accept/reject flow
   - Done when: Incoming transfers are visible and can be acted on.
-  - Evidence:
+  - Evidence: inbox now watches shared transfer batches, renders incoming Firestore-backed transfers in real time, and updates batch status through `TransferBatchActionController`.
 - [ ] Download progress, save flow, and completed history
   - Done when: Receiver can save and review received files.
   - Evidence:
@@ -348,6 +351,10 @@
   - Decision: Use `file_picker` for the core sender-drafting slice and keep native picker work for the bonus track.
   - Why: The assessment explicitly rewards rough but real progress, and the core weighted milestone is end-to-end transfer rather than native picker polish.
   - Tradeoff: The picker path now needs an honest README note because it is intentionally not the bonus-native implementation.
+- Date: 2026-04-19
+  - Decision: Use Firestore transfer documents as the control-plane source of truth before adding upload/download bytes.
+  - Why: This unlocks cross-device inbox discovery, accept/reject semantics, and shared status transitions without waiting for the relay data plane.
+  - Tradeoff: Reviewers can now see transfers appear remotely, but actual file movement and progress remain incomplete until the relay/upload slice lands.
 
 ## 10. Session Log
 ### Session 2026-04-19 16:13
@@ -377,6 +384,13 @@
 - Evidence added: `flutter analyze` clean; `flutter test` passed with new transfer-draft controller and validator coverage.
 - New blocker: The send flow now stops at local draft creation because upload/download, relay transport, and recipient-side realtime delivery are not implemented yet.
 - Next step: Build the next `M2` slice by writing transfer records remotely and connecting the first real upload initiation path on top of the new draft queue.
+
+### Session 2026-04-19 19:08
+- Planned work: Replace the inbox placeholder with a real shared transfer feed and make sender-created drafts become remote transfer records when Firebase is configured.
+- Completed work: Added Firestore-backed transfer creation/watch logic, a hybrid transfer repository with local fallback, recipient-aware transfer creation, live inbox rendering, and accept/reject batch actions.
+- Evidence added: `flutter analyze` clean; `flutter test` passed with new recipient-action controller coverage and the existing draft tests updated for the new repository contract.
+- New blocker: Actual file bytes still do not upload/download, and Firebase-backed behavior still needs live-project/device validation.
+- Next step: Connect the first upload initiation path and sender/recipient progress updates on top of the new shared transfer records.
 
 ## 11. Final Submission Checklist
 - [ ] Signed debug APK tested on clean Android device

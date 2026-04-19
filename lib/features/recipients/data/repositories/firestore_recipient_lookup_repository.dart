@@ -56,6 +56,7 @@ class FirestoreRecipientLookupRepository implements RecipientLookupRepository {
         displayName: userData == null
             ? null
             : userData['displayName'] as String?,
+        userId: ownerUid,
         isOnline: status is Map<String, dynamic>
             ? status['isOnline'] == true
             : false,

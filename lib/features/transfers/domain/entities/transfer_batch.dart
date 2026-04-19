@@ -15,6 +15,7 @@ class TransferBatch {
     required this.files,
     required this.createdAt,
     required this.networkPolicy,
+    this.senderCode,
     this.recipientCode,
     this.failure,
     this.bytesTransferred = 0,
@@ -27,6 +28,7 @@ class TransferBatch {
   final List<TransferFile> files;
   final DateTime createdAt;
   final NetworkPolicy networkPolicy;
+  final RecipientCode? senderCode;
   final RecipientCode? recipientCode;
   final TransferFailure? failure;
   final int bytesTransferred;
@@ -46,6 +48,7 @@ class TransferBatch {
     List<TransferFile>? files,
     DateTime? createdAt,
     NetworkPolicy? networkPolicy,
+    Object? senderCode = _transferBatchSentinel,
     Object? recipientCode = _transferBatchSentinel,
     Object? failure = _transferBatchSentinel,
     int? bytesTransferred,
@@ -58,6 +61,9 @@ class TransferBatch {
       files: files ?? this.files,
       createdAt: createdAt ?? this.createdAt,
       networkPolicy: networkPolicy ?? this.networkPolicy,
+      senderCode: senderCode == _transferBatchSentinel
+          ? this.senderCode
+          : senderCode as RecipientCode?,
       recipientCode: recipientCode == _transferBatchSentinel
           ? this.recipientCode
           : recipientCode as RecipientCode?,

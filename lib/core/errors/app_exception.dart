@@ -31,3 +31,7 @@ final class TransferDraftException extends AppException {
 final class TransferFileSelectionException extends AppException {
   const TransferFileSelectionException(super.message, {super.cause});
 }
+
+final class TransferRepositoryException extends AppException {
+  const TransferRepositoryException(super.message, {super.cause});
+}

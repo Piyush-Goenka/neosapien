@@ -96,11 +96,11 @@ class _SendScreenBody extends ConsumerWidget {
         const SizedBox(height: 16),
         OverviewCard(
           eyebrow: 'Draft batch',
-          title: 'Pick files and validate them before any upload starts.',
+          title: 'Pick files and create the first real transfer record.',
           subtitle:
-              'This slice stays local on purpose. The sender can now prepare a '
-              'typed batch draft with file limits and network policy enforced '
-              'before relay/upload work lands.',
+              'The sender still validates locally first, but a configured app '
+              'now escalates the batch into a shared remote transfer record so '
+              'the recipient inbox can update in near real time.',
           children: <Widget>[
             Row(
               children: <Widget>[
@@ -176,8 +176,8 @@ class _SendScreenBody extends ConsumerWidget {
               _MessageRow(
                 icon: Icons.check_circle_outline_rounded,
                 message:
-                    'Draft ${draftState.createdBatchId} created locally. '
-                    'Transport and progress wiring are the next slice.',
+                    'Transfer ${draftState.createdBatchId} created. '
+                    'If Firebase is configured, the recipient inbox can now see it live.',
               ),
             ],
             const SizedBox(height: 16),
@@ -214,7 +214,7 @@ class _SendScreenBody extends ConsumerWidget {
             FilledButton.icon(
               onPressed: canCreateDraft
                   ? () => draftController.createDraft(
-                        recipientCode: resolvedRecipient.code,
+                        recipient: resolvedRecipient,
                       )
                   : null,
               icon: draftState.isCreatingDraft
@@ -234,10 +234,10 @@ class _SendScreenBody extends ConsumerWidget {
         const SizedBox(height: 16),
         OverviewCard(
           eyebrow: 'Outgoing drafts',
-          title: 'Local drafts are now visible and cancellable.',
+          title: 'Outgoing transfer records are visible and cancellable.',
           subtitle:
-              'This list becomes the sender-side source of truth for upload '
-              'progress, retry, and cancellation once transport is connected.',
+              'Local fallback remains available, but Firebase-backed transfers '
+              'now use the same queue surface so send-side state stays unified.',
           children: <Widget>[
             transferBatches.when(
               data: (batches) {

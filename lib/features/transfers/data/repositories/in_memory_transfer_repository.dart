@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:neo_sapien/features/recipients/domain/value_objects/recipient_code.dart';
+import 'package:neo_sapien/features/recipients/domain/entities/recipient.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/network_policy.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_batch.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_direction.dart';
@@ -24,7 +24,7 @@ class InMemoryTransferRepository implements TransferRepository {
 
   @override
   Future<String> createDraft({
-    required RecipientCode recipientCode,
+    required Recipient recipient,
     required List<TransferFile> files,
     required NetworkPolicy networkPolicy,
   }) async {
@@ -47,7 +47,7 @@ class InMemoryTransferRepository implements TransferRepository {
         files: List<TransferFile>.unmodifiable(files),
         createdAt: createdAt,
         networkPolicy: networkPolicy,
-        recipientCode: recipientCode,
+        recipientCode: recipient.code,
         totalBytes: totalBytes,
       ),
     );
@@ -57,17 +57,44 @@ class InMemoryTransferRepository implements TransferRepository {
 
   @override
   Future<void> cancelBatch(String batchId) async {
+    await _updateBatchStatus(batchId, TransferStatus.cancelled);
+  }
+
+  @override
+  Future<void> acceptBatch(String batchId) async {
+    await _updateBatchStatus(batchId, TransferStatus.queued);
+  }
+
+  @override
+  Future<void> rejectBatch(String batchId) async {
+    await _updateBatchStatus(batchId, TransferStatus.rejected);
+  }
+
+  Future<void> _updateBatchStatus(
+    String batchId,
+    TransferStatus status,
+  ) async {
     final batchIndex = _batches.indexWhere((batch) => batch.id == batchId);
     if (batchIndex < 0) {
       return;
     }
 
     final batch = _batches[batchIndex];
+    final fileStatus = switch (status) {
+      TransferStatus.cancelled || TransferStatus.rejected =>
+        TransferFileStatus.cancelled,
+      TransferStatus.completed => TransferFileStatus.completed,
+      TransferStatus.uploading || TransferStatus.downloading =>
+        TransferFileStatus.inProgress,
+      TransferStatus.failed || TransferStatus.corrupted =>
+        TransferFileStatus.failed,
+      _ => TransferFileStatus.pending,
+    };
     _batches[batchIndex] = batch.copyWith(
-      status: TransferStatus.cancelled,
+      status: status,
       files: batch.files
           .map(
-            (file) => file.copyWith(status: TransferFileStatus.cancelled),
+            (file) => file.copyWith(status: fileStatus),
           )
           .toList(growable: false),
     );
