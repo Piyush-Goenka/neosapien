@@ -4,7 +4,7 @@ Cross-device file sharing app for the NeoSapien Mobile Developer Intern Assessme
 
 ## Current Status
 
-- Milestone: `M0 Foundation`
+- Milestone: `M2 Core Transfer Happy Path` (sender-side draft creation in progress)
 - Platforms: `Android + iPhone`
 - Architecture: `Flutter + Riverpod + GoRouter + local secure storage`
 - Bonus track: `Pigeon` platform bridge for background transfers on Android and iOS
@@ -18,6 +18,8 @@ Cross-device file sharing app for the NeoSapien Mobile Developer Intern Assessme
 - Routed dashboard, send, inbox, and profile surfaces
 - Pigeon contract scaffold for native transfer/background work
 - Recipient lookup flow with fast invalid-code handling and Firestore lookup plumbing
+- Sender-side file picking, preflight validation, network policy selection, and local transfer draft creation
+- Outgoing draft list with typed local repository state and cancellation support before transport is wired
 
 ## Architecture Snapshot
 
@@ -75,6 +77,13 @@ lib/
 - `cloud_firestore` stores `users/{uid}` and `codes/{shortCode}` documents for identity registration and recipient lookup.
 - `firebase_storage` and `firebase_messaging` are added now to keep the control plane aligned with the assessment architecture, with transfer and notification wiring next.
 
+## Current Transfer Scope
+
+- `file_picker` is used for the core sender-draft slice so batch composition can move forward before native picker bonus work.
+- The app currently creates local outgoing transfer drafts only; no bytes are uploaded yet.
+- Draft validation already enforces file-count, per-file, and total batch-size limits without loading file data into memory.
+- Native picker integration remains planned as a bonus replacement once the core internet transfer path is stable.
+
 ## Pigeon Code Generation
 
 ```bash
@@ -83,7 +92,8 @@ dart run pigeon --input pigeons/native_transfer_bridge.dart
 
 ## Next Implementation Steps
 
-- Finish Firebase code reservation/lookup end to end on real devices
-- Replace placeholder send/inbox flows with real transfer orchestration
+- Validate Firebase code reservation/lookup end to end on real devices
+- Write remote transfer records and connect the first real upload initiation path
+- Replace the inbox placeholder with real recipient-side transfer discovery
 - Add Cloud Run resumable relay integration
 - Implement background transfers through the Pigeon bridge on Android and iOS

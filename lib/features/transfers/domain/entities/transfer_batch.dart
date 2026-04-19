@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:neo_sapien/features/recipients/domain/value_objects/recipient_code.dart';
+import 'package:neo_sapien/features/transfers/domain/entities/network_policy.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_direction.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_failure.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_file.dart';
@@ -13,6 +14,7 @@ class TransferBatch {
     required this.status,
     required this.files,
     required this.createdAt,
+    required this.networkPolicy,
     this.recipientCode,
     this.failure,
     this.bytesTransferred = 0,
@@ -24,6 +26,7 @@ class TransferBatch {
   final TransferStatus status;
   final List<TransferFile> files;
   final DateTime createdAt;
+  final NetworkPolicy networkPolicy;
   final RecipientCode? recipientCode;
   final TransferFailure? failure;
   final int bytesTransferred;
@@ -35,4 +38,36 @@ class TransferBatch {
     }
     return bytesTransferred / totalBytes;
   }
+
+  TransferBatch copyWith({
+    String? id,
+    TransferDirection? direction,
+    TransferStatus? status,
+    List<TransferFile>? files,
+    DateTime? createdAt,
+    NetworkPolicy? networkPolicy,
+    Object? recipientCode = _transferBatchSentinel,
+    Object? failure = _transferBatchSentinel,
+    int? bytesTransferred,
+    int? totalBytes,
+  }) {
+    return TransferBatch(
+      id: id ?? this.id,
+      direction: direction ?? this.direction,
+      status: status ?? this.status,
+      files: files ?? this.files,
+      createdAt: createdAt ?? this.createdAt,
+      networkPolicy: networkPolicy ?? this.networkPolicy,
+      recipientCode: recipientCode == _transferBatchSentinel
+          ? this.recipientCode
+          : recipientCode as RecipientCode?,
+      failure: failure == _transferBatchSentinel
+          ? this.failure
+          : failure as TransferFailure?,
+      bytesTransferred: bytesTransferred ?? this.bytesTransferred,
+      totalBytes: totalBytes ?? this.totalBytes,
+    );
+  }
 }
+
+const Object _transferBatchSentinel = Object();

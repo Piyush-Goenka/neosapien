@@ -23,3 +23,11 @@ final class RemoteIdentityException extends AppException {
 final class RecipientLookupException extends AppException {
   const RecipientLookupException(super.message, {super.cause});
 }
+
+final class TransferDraftException extends AppException {
+  const TransferDraftException(super.message, {super.cause});
+}
+
+final class TransferFileSelectionException extends AppException {
+  const TransferFileSelectionException(super.message, {super.cause});
+}

@@ -6,11 +6,11 @@
 - Platforms: Flutter app with full Android + iPhone parity.
 - Primary bonus: Pigeon-based background transfer on Android and iOS.
 - Secondary bonus: Native picker + native save flow if core is already green.
-- Current phase: M1 Identity And Addressing
+- Current phase: M2 Core Transfer Happy Path
 - Overall status: [/]
-- Current focus: Validate the new Firebase bootstrap and Firestore registration flow against a real Firebase project, then finish the identity/addressing milestone on physical devices.
-- Next milestone: M1 Identity And Addressing
-- Latest blocker: Real Firebase project credentials and device validation are still missing, so the new runtime bootstrap and Firestore flows are implemented but not yet verified end to end.
+- Current focus: Build the first real transfer path on top of the new sender-side draft queue while keeping Firebase device validation queued as the remaining M1 proof gap.
+- Next milestone: M2 Core Transfer Happy Path
+- Latest blocker: Real Firebase project credentials and device validation are still missing, and the relay/upload path has not yet been connected to the new local draft queue.
 - Demo readiness: [ ] Not ready
 - Submission readiness: [ ] Not ready
 
@@ -30,12 +30,15 @@
 - Hybrid identity repository added: local fallback, Firebase anonymous auth, and Firestore-backed short-code reservation when configured.
 - Recipient lookup controller and send-screen lookup UI added with fast invalid-code, missing-code, and self-send failure handling.
 - Profile actions added for copying the short code and retrying registration after Firebase setup changes.
+- Sender-side file picking, preflight validation, and local transfer-draft creation are now implemented with an outgoing draft list in the send flow.
+- Draft validation now enforces file-count, per-file, and total batch-size ceilings without loading file bytes into memory.
+- Transfer draft tests added for selection, draft creation, and large-file / invalid-source guardrails.
 - Foundation validation completed: `flutter analyze` passes and `flutter test` passes after the Firebase/addressing slice.
 
 ### Left To Do
 - Finish `M0 Foundation` by supplying real Firebase project values, validating Android+iPhone bootstrap, and confirming Firebase plugin setup on both platforms.
 - Finish `M1 Identity And Addressing`: validate server-backed short-code reservation on a real Firestore project, confirm collision handling behavior, and complete profile-sharing polish.
-- Implement `M2 Core Transfer Happy Path`: real file selection, batch creation, internet upload/download, sender and recipient progress, and cross-device transfer in both directions.
+- Implement `M2 Core Transfer Happy Path`: internet upload/download, sender and recipient progress, and cross-device transfer in both directions on top of the new local draft queue.
 - Implement `M3 Resilience And Starred Cases`: offline recipient handling, network-drop recovery, large-file streaming, multi-file partial failure, permission denial, incoming-while-closed flow, and TLS-backed transport.
 - Implement `M4 Native Background Transfer Bonus`: Android foreground service/WorkManager plus iOS background `URLSession` through the Pigeon bridge.
 - Implement `M5 Cross-Platform Hardening`: disk-space checks, hash verification, save conflict handling, process-death recovery, network transition handling, and real-device parity validation.
@@ -74,9 +77,9 @@
 - [/] Short-code identity generation and registration
   - Done when: User receives a stable human-friendly code and it resolves correctly from another device.
   - Evidence: `HybridIdentityRepository` now attempts Firestore-backed registration with collision retries and persists the reserved code locally; still pending validation against a real Firebase project.
-- [ ] Send one or more media files to a short code
+- [/] Send one or more media files to a short code
   - Done when: Images, video, audio, documents, and arbitrary files can be sent in a single batch.
-  - Evidence:
+  - Evidence: sender-side file picking, MIME inference, preflight validation, and local batch-draft creation are implemented through `TransferDraftComposerController`, `FilePickerTransferFileSelector`, and `InMemoryTransferRepository`; internet upload/delivery is still pending.
 - [ ] Works across distance / internet relay
   - Done when: Transfers do not depend on proximity, LAN, or localhost.
   - Evidence:
@@ -100,9 +103,9 @@
 - [ ] Network drop mid-transfer handled
   - Done when: Resume, restart, or fail-cleanly policy works and is tested.
   - Evidence:
-- [ ] Large files handled without OOM
+- [/] Large files handled without OOM
   - Done when: Hard size ceiling is enforced and near-limit files stream safely.
-  - Evidence:
+  - Evidence: `TransferDraftValidator` now enforces per-file and per-batch ceilings before upload, while `FilePicker.pickFiles(withData: false)` keeps selection metadata-only so file bytes are not loaded into memory during composition; resumable streaming transport is still pending.
 - [ ] Multiple files at once with partial failure isolation
   - Done when: One file can fail without killing the whole batch.
   - Evidence:
@@ -129,9 +132,9 @@
 - [ ] Metered connection warning added
   - Done when: Large cellular transfers require an explicit confirmation.
   - Evidence:
-- [ ] Unusual MIME and zero-byte files do not crash
+- [/] Unusual MIME and zero-byte files do not crash
   - Done when: `.heic`, `.webp`, `.mov`, extensionless, and empty files are handled.
-  - Evidence:
+  - Evidence: `MimeTypeGuesser` now classifies common mobile formats with `application/octet-stream` fallback, and `transfer_draft_validator_test.dart` explicitly covers zero-byte-file acceptance; end-to-end transport/save coverage is still pending.
 - [ ] Filename conflict policy implemented
   - Done when: Save collisions rename deterministically.
   - Evidence:
@@ -178,9 +181,9 @@
   - Done when: Anonymous identity, short-code generation, lookup, profile display, and invalid code handling are working.
   - Evidence: hybrid identity registration, Firestore code reservation, recipient lookup repository, and send-screen lookup UI are implemented in code; live project verification is still pending.
 
-- [ ] M2 Core Transfer Happy Path
+- [/] M2 Core Transfer Happy Path
   - Done when: Cross-device upload/download works in both directions with progress and final statuses.
-  - Evidence:
+  - Evidence: sender-side file selection, preflight validation, network-policy choice, local batch-draft creation, and outgoing-draft visibility are now implemented and covered by passing analyzer/tests; relay-backed upload/download and recipient-side flow are still pending.
 
 - [ ] M3 Resilience And Starred Cases
   - Done when: All starred edge cases are implemented and verified on both platforms.
@@ -229,9 +232,9 @@
 - [x] Onboarding and profile screen
   - Done when: User can see and share their code.
   - Evidence: dashboard/profile routes render the provisioned local identity and runtime configuration through the new app shell.
-- [/] Recipient lookup and send composer
+- [x] Recipient lookup and send composer
   - Done when: Sender can resolve code and prepare a batch.
-  - Evidence: send screen now includes backend-backed recipient lookup with validation, self-send blocking, and missing-recipient messaging; file selection and batch creation are still pending.
+  - Evidence: send screen now includes backend-backed recipient lookup with validation, self-send blocking, missing-recipient messaging, file picking, network-policy selection, and local transfer-draft creation.
 - [ ] Sender progress UI
   - Done when: Per-file and aggregate states are visible and actionable.
   - Evidence:
@@ -341,10 +344,10 @@
   - Decision: Initialize Firebase from explicit runtime defines instead of checked-in platform secret files.
   - Why: This keeps secrets out of the repo and makes Android+iPhone setup reproducible without generated local files.
   - Tradeoff: Real device verification now depends on supplying correct platform-specific runtime values before backend-backed flows can be exercised.
-- Date:
-  - Decision:
-  - Why:
-  - Tradeoff:
+- Date: 2026-04-19
+  - Decision: Use `file_picker` for the core sender-drafting slice and keep native picker work for the bonus track.
+  - Why: The assessment explicitly rewards rough but real progress, and the core weighted milestone is end-to-end transfer rather than native picker polish.
+  - Tradeoff: The picker path now needs an honest README note because it is intentionally not the bonus-native implementation.
 
 ## 10. Session Log
 ### Session 2026-04-19 16:13
@@ -367,6 +370,13 @@
 - Evidence added: `flutter analyze` clean; `flutter test` passed with the new recipient lookup controller tests.
 - New blocker: Backend-backed registration and lookup still need real Firebase credentials and device verification.
 - Next step: Configure Firebase values locally and validate Android+iPhone registration plus lookup before building transfer drafts.
+
+### Session 2026-04-19 18:55
+- Planned work: Implement the first `M2` slice by allowing the sender to pick files, validate them, and create a local transfer draft before any transport code is added.
+- Completed work: Added `file_picker`, a transfer file-selector abstraction, MIME inference, draft validation, an in-memory transfer repository, a draft-composer controller, send-screen file selection/UI, and outgoing draft visibility/cancellation.
+- Evidence added: `flutter analyze` clean; `flutter test` passed with new transfer-draft controller and validator coverage.
+- New blocker: The send flow now stops at local draft creation because upload/download, relay transport, and recipient-side realtime delivery are not implemented yet.
+- Next step: Build the next `M2` slice by writing transfer records remotely and connecting the first real upload initiation path on top of the new draft queue.
 
 ## 11. Final Submission Checklist
 - [ ] Signed debug APK tested on clean Android device
