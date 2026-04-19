@@ -9,6 +9,7 @@ import 'package:neo_sapien/features/transfers/domain/entities/network_policy.dar
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_batch.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_direction.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_status.dart';
+import 'package:neo_sapien/features/transfers/presentation/widgets/transfer_progress_summary.dart';
 import 'package:neo_sapien/shared/presentation/widgets/app_scaffold.dart';
 
 class InboxScreen extends StatelessWidget {
@@ -44,18 +45,18 @@ class _InboxScreenBody extends ConsumerWidget {
               'Incoming transfer discovery is now backed by the shared transfer repository.',
           subtitle:
               'Firestore-backed transfer metadata can now appear here in near '
-              'real time when Firebase is configured. Accept/reject is wired; '
-              'download and save flows are the next slice.',
+              'real time when Firebase is configured. Accept/reject is wired, '
+              'and sender upload progress now streams here while download and '
+              'save flows remain the next slice.',
           children: <Widget>[
             if (actionState.errorMessage != null)
-              _InlineMessage(
-                message: actionState.errorMessage!,
-                isError: true,
-              ),
+              _InlineMessage(message: actionState.errorMessage!, isError: true),
             transferBatches.when(
               data: (batches) {
                 final incomingBatches = batches
-                    .where((batch) => batch.direction == TransferDirection.incoming)
+                    .where(
+                      (batch) => batch.direction == TransferDirection.incoming,
+                    )
                     .toList(growable: false);
                 if (incomingBatches.isEmpty) {
                   return const _EmptyInboxState();
@@ -63,20 +64,20 @@ class _InboxScreenBody extends ConsumerWidget {
 
                 return Column(
                   children: <Widget>[
-                    for (var index = 0;
-                        index < incomingBatches.length;
-                        index += 1) ...<Widget>[
+                    for (
+                      var index = 0;
+                      index < incomingBatches.length;
+                      index += 1
+                    ) ...<Widget>[
                       _IncomingBatchCard(
                         batch: incomingBatches[index],
                         isActionPending: actionState.isPending(
                           incomingBatches[index].id,
                         ),
-                        onAccept: () => actionController.accept(
-                          incomingBatches[index].id,
-                        ),
-                        onReject: () => actionController.reject(
-                          incomingBatches[index].id,
-                        ),
+                        onAccept: () =>
+                            actionController.accept(incomingBatches[index].id),
+                        onReject: () =>
+                            actionController.reject(incomingBatches[index].id),
                       ),
                       if (index < incomingBatches.length - 1)
                         const SizedBox(height: 12),
@@ -85,23 +86,20 @@ class _InboxScreenBody extends ConsumerWidget {
                 );
               },
               loading: () => const LinearProgressIndicator(),
-              error: (error, stackTrace) => _InlineMessage(
-                message: error.toString(),
-                isError: true,
-              ),
+              error: (error, stackTrace) =>
+                  _InlineMessage(message: error.toString(), isError: true),
             ),
           ],
         ),
         const SizedBox(height: 16),
         const OverviewCard(
           eyebrow: 'Next in queue',
-          title: 'Transport and receiver-side persistence are still ahead.',
+          title: 'Receiver-side persistence is still ahead.',
           subtitle:
-              'This inbox now proves cross-device metadata arrival and recipient '
-              'decision flow. The next slice connects upload initiation, then '
-              'actual download/save behavior.',
+              'This inbox now proves cross-device metadata arrival, recipient '
+              'decision flow, and sender-side upload progress. The next slice '
+              'connects actual download and save-to-device behavior.',
           children: <Widget>[
-            _InboxRow(label: 'Upload initiation on accepted outgoing batches'),
             _InboxRow(label: 'Recipient download and save-to-device flow'),
             _InboxRow(label: 'Push notifications and deep links'),
           ],
@@ -203,7 +201,7 @@ class _IncomingBatchCard extends StatelessWidget {
                   ),
                 ),
               ),
-              Chip(label: Text(_formatTransferStatus(batch.status))),
+              Chip(label: Text(formatTransferStatus(batch.status))),
             ],
           ),
           const SizedBox(height: 8),
@@ -221,12 +219,16 @@ class _IncomingBatchCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          for (final file in batch.files) ...<Widget>[
-            Text(
-              '${file.name} • ${ByteCountFormatter.format(file.byteCount)}',
-            ),
-            const SizedBox(height: 4),
-          ],
+          TransferProgressSummary(
+            batch: batch,
+            statusOverride: switch (batch.status) {
+              TransferStatus.awaitingAcceptance =>
+                'Waiting for your decision before upload starts',
+              TransferStatus.pendingRecipient =>
+                'Upload complete. Download flow is next',
+              _ => null,
+            },
+          ),
           const SizedBox(height: 12),
           Row(
             children: <Widget>[
@@ -283,23 +285,5 @@ String _networkPolicyLabel(NetworkPolicy policy) {
     NetworkPolicy.confirmOnMetered => 'Confirm on metered',
     NetworkPolicy.wifiOnly => 'Wi-Fi only',
     NetworkPolicy.allowMetered => 'Allow metered',
-  };
-}
-
-String _formatTransferStatus(TransferStatus status) {
-  return switch (status) {
-    TransferStatus.awaitingAcceptance => 'Awaiting acceptance',
-    TransferStatus.pendingRecipient => 'Pending recipient',
-    TransferStatus.cancelled => 'Cancelled',
-    TransferStatus.completed => 'Completed',
-    TransferStatus.corrupted => 'Corrupted',
-    TransferStatus.downloading => 'Downloading',
-    TransferStatus.expired => 'Expired',
-    TransferStatus.failed => 'Failed',
-    TransferStatus.queued => 'Queued',
-    TransferStatus.rejected => 'Rejected',
-    TransferStatus.uploading => 'Uploading',
-    TransferStatus.validating => 'Validating',
-    TransferStatus.draft => 'Draft',
   };
 }

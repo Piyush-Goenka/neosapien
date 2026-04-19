@@ -7,6 +7,8 @@ import 'package:neo_sapien/features/recipients/domain/value_objects/recipient_co
 import 'package:neo_sapien/features/transfers/domain/entities/network_policy.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_batch.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_direction.dart';
+import 'package:neo_sapien/features/transfers/domain/entities/transfer_failure.dart';
+import 'package:neo_sapien/features/transfers/domain/entities/transfer_failure_code.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_file.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_file_status.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_status.dart';
@@ -56,18 +58,7 @@ class FirestoreTransferRemoteDataSource {
         'expiresAt': Timestamp.fromDate(createdAt.add(transferTtl)),
         'bytesTransferred': 0,
         'totalBytes': totalBytes,
-        'files': files
-            .map(
-              (file) => <String, Object?>{
-                'id': file.id,
-                'name': file.name,
-                'byteCount': file.byteCount,
-                'mimeType': file.mimeType,
-                'transferredBytes': file.transferredBytes,
-                'status': file.status.name,
-              },
-            )
-            .toList(growable: false),
+        'files': _serializeFiles(files),
       });
       return batchId;
     } on FirebaseException catch (error) {
@@ -102,54 +93,108 @@ class FirestoreTransferRemoteDataSource {
       outgoingSub = _transfersCollection
           .where('senderUid', isEqualTo: currentUserUid)
           .snapshots()
-          .listen(
-            (snapshot) {
-              outgoingBatches
-                ..clear()
-                ..addEntries(
-                  snapshot.docs.map(
-                    (doc) => MapEntry(
-                      doc.id,
-                      _batchFromSnapshot(
-                        doc: doc,
-                        currentUserUid: currentUserUid,
-                      ),
+          .listen((snapshot) {
+            outgoingBatches
+              ..clear()
+              ..addEntries(
+                snapshot.docs.map(
+                  (doc) => MapEntry(
+                    doc.id,
+                    _batchFromSnapshot(
+                      doc: doc,
+                      currentUserUid: currentUserUid,
                     ),
                   ),
-                );
-              emit();
-            },
-            onError: controller.addError,
-          );
+                ),
+              );
+            emit();
+          }, onError: controller.addError);
 
       incomingSub = _transfersCollection
           .where('recipientUid', isEqualTo: currentUserUid)
           .snapshots()
-          .listen(
-            (snapshot) {
-              incomingBatches
-                ..clear()
-                ..addEntries(
-                  snapshot.docs.map(
-                    (doc) => MapEntry(
-                      doc.id,
-                      _batchFromSnapshot(
-                        doc: doc,
-                        currentUserUid: currentUserUid,
-                      ),
+          .listen((snapshot) {
+            incomingBatches
+              ..clear()
+              ..addEntries(
+                snapshot.docs.map(
+                  (doc) => MapEntry(
+                    doc.id,
+                    _batchFromSnapshot(
+                      doc: doc,
+                      currentUserUid: currentUserUid,
                     ),
                   ),
-                );
-              emit();
-            },
-            onError: controller.addError,
-          );
+                ),
+              );
+            emit();
+          }, onError: controller.addError);
 
       controller.onCancel = () async {
         await outgoingSub?.cancel();
         await incomingSub?.cancel();
       };
     });
+  }
+
+  Future<TransferBatch?> fetchTransferBatch({
+    required String batchId,
+    required String currentUserUid,
+  }) async {
+    try {
+      final snapshot = await _transfersCollection.doc(batchId).get();
+      final data = snapshot.data();
+      if (!snapshot.exists || data == null) {
+        return null;
+      }
+
+      final senderUid = data['senderUid'] as String?;
+      final recipientUid = data['recipientUid'] as String?;
+      if (senderUid != currentUserUid && recipientUid != currentUserUid) {
+        throw const TransferRepositoryException(
+          'This transfer cannot be read from the current device.',
+        );
+      }
+
+      return _batchFromSnapshot(doc: snapshot, currentUserUid: currentUserUid);
+    } on TransferRepositoryException {
+      rethrow;
+    } on FirebaseException catch (error) {
+      throw TransferRepositoryException(
+        'Failed to load the transfer batch: ${error.message ?? error.code}.',
+        cause: error,
+      );
+    }
+  }
+
+  Future<void> updateOutgoingTransferBatch({
+    required String batchId,
+    required String currentUserUid,
+    required TransferStatus status,
+    required List<TransferFile> files,
+    required int bytesTransferred,
+    TransferFailure? failure,
+  }) async {
+    try {
+      await _transfersCollection.doc(batchId).update(<String, Object?>{
+        'status': status.name,
+        'updatedAt': Timestamp.fromDate(DateTime.now().toUtc()),
+        'bytesTransferred': bytesTransferred,
+        'totalBytes': files.fold<int>(
+          0,
+          (total, file) => total + file.byteCount,
+        ),
+        'files': _serializeFiles(files),
+        'failure': _serializeFailure(failure),
+        'lastUpdatedBy': currentUserUid,
+      });
+    } on FirebaseException catch (error) {
+      throw TransferRepositoryException(
+        'Failed to persist the transfer progress: '
+        '${error.message ?? error.code}.',
+        cause: error,
+      );
+    }
   }
 
   Future<void> cancelBatch({
@@ -236,7 +281,8 @@ class FirestoreTransferRemoteDataSource {
     final createdAt = _timestampToUtc(data['createdAt']);
     final status = _statusFromName(data['status'] as String?);
     final files = _filesFromData(data['files'], status);
-    final totalBytes = (data['totalBytes'] as num?)?.toInt() ??
+    final totalBytes =
+        (data['totalBytes'] as num?)?.toInt() ??
         files.fold<int>(0, (total, file) => total + file.byteCount);
     final bytesTransferred =
         (data['bytesTransferred'] as num?)?.toInt() ??
@@ -253,34 +299,105 @@ class FirestoreTransferRemoteDataSource {
       networkPolicy: _networkPolicyFromName(data['networkPolicy'] as String?),
       senderCode: _recipientCodeFromString(data['senderCode'] as String?),
       recipientCode: _recipientCodeFromString(data['recipientCode'] as String?),
+      failure: _failureFromData(data['failure']),
       bytesTransferred: bytesTransferred,
       totalBytes: totalBytes,
     );
   }
 
-  List<TransferFile> _filesFromData(Object? rawFiles, TransferStatus batchStatus) {
+  List<Map<String, Object?>> _serializeFiles(List<TransferFile> files) {
+    return files
+        .map(
+          (file) => <String, Object?>{
+            'id': file.id,
+            'name': file.name,
+            'byteCount': file.byteCount,
+            'mimeType': file.mimeType,
+            'transferredBytes': file.transferredBytes,
+            'status': file.status.name,
+            'checksumSha256': file.checksumSha256,
+            'storagePath': file.storagePath,
+            'downloadUrl': file.downloadUrl,
+            'failure': _serializeFailure(file.failure),
+          },
+        )
+        .toList(growable: false);
+  }
+
+  List<TransferFile> _filesFromData(
+    Object? rawFiles,
+    TransferStatus batchStatus,
+  ) {
     if (rawFiles is! List<Object?>) {
       return const <TransferFile>[];
     }
 
     return rawFiles
-        .whereType<Map<String, dynamic>>()
+        .asMap()
+        .entries
+        .map((entry) => MapEntry(entry.key, _toMap(entry.value)))
+        .where((entry) => entry.value != null)
         .map(
-          (data) => TransferFile(
-            id: data['id'] as String? ?? 'file-${rawFiles.indexOf(data)}',
-            name: data['name'] as String? ?? 'unnamed-file',
-            byteCount: (data['byteCount'] as num?)?.toInt() ?? 0,
+          (entry) => TransferFile(
+            id: entry.value!['id'] as String? ?? 'file-${entry.key}',
+            name: entry.value!['name'] as String? ?? 'unnamed-file',
+            byteCount: (entry.value!['byteCount'] as num?)?.toInt() ?? 0,
             mimeType:
-                data['mimeType'] as String? ?? 'application/octet-stream',
+                entry.value!['mimeType'] as String? ??
+                'application/octet-stream',
+            checksumSha256: entry.value!['checksumSha256'] as String?,
             transferredBytes:
-                (data['transferredBytes'] as num?)?.toInt() ?? 0,
+                (entry.value!['transferredBytes'] as num?)?.toInt() ?? 0,
             status: _fileStatusFromName(
-              data['status'] as String?,
+              entry.value!['status'] as String?,
               fallbackStatus: batchStatus,
             ),
+            failure: _failureFromData(entry.value!['failure']),
+            storagePath: entry.value!['storagePath'] as String?,
+            downloadUrl: entry.value!['downloadUrl'] as String?,
           ),
         )
         .toList(growable: false);
+  }
+
+  Map<String, dynamic>? _toMap(Object? value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return value.map((key, mapValue) => MapEntry(key.toString(), mapValue));
+    }
+    return null;
+  }
+
+  Map<String, Object?>? _serializeFailure(TransferFailure? failure) {
+    if (failure == null) {
+      return null;
+    }
+
+    return <String, Object?>{
+      'code': failure.code.name,
+      'message': failure.message,
+      'isRecoverable': failure.isRecoverable,
+    };
+  }
+
+  TransferFailure? _failureFromData(Object? rawFailure) {
+    final data = _toMap(rawFailure);
+    if (data == null) {
+      return null;
+    }
+
+    final message = data['message'] as String?;
+    if (message == null || message.isEmpty) {
+      return null;
+    }
+
+    return TransferFailure(
+      code: _failureCodeFromName(data['code'] as String?),
+      message: message,
+      isRecoverable: data['isRecoverable'] as bool? ?? false,
+    );
   }
 
   RecipientCode? _recipientCodeFromString(String? value) {
@@ -336,13 +453,14 @@ class FirestoreTransferRemoteDataSource {
 
   TransferFileStatus _fileStatusFromBatchStatus(TransferStatus batchStatus) {
     return switch (batchStatus) {
-      TransferStatus.completed => TransferFileStatus.completed,
-      TransferStatus.uploading || TransferStatus.downloading =>
-        TransferFileStatus.inProgress,
-      TransferStatus.failed || TransferStatus.corrupted =>
-        TransferFileStatus.failed,
-      TransferStatus.cancelled || TransferStatus.rejected =>
-        TransferFileStatus.cancelled,
+      TransferStatus.completed ||
+      TransferStatus.pendingRecipient => TransferFileStatus.completed,
+      TransferStatus.uploading ||
+      TransferStatus.downloading => TransferFileStatus.inProgress,
+      TransferStatus.failed ||
+      TransferStatus.corrupted => TransferFileStatus.failed,
+      TransferStatus.cancelled ||
+      TransferStatus.rejected => TransferFileStatus.cancelled,
       _ => TransferFileStatus.pending,
     };
   }
@@ -352,6 +470,22 @@ class FirestoreTransferRemoteDataSource {
       'wifiOnly' => NetworkPolicy.wifiOnly,
       'allowMetered' => NetworkPolicy.allowMetered,
       _ => NetworkPolicy.confirmOnMetered,
+    };
+  }
+
+  TransferFailureCode _failureCodeFromName(String? value) {
+    return switch (value) {
+      'invalidRecipient' => TransferFailureCode.invalidRecipient,
+      'recipientOffline' => TransferFailureCode.recipientOffline,
+      'networkInterrupted' => TransferFailureCode.networkInterrupted,
+      'fileTooLarge' => TransferFailureCode.fileTooLarge,
+      'lowStorage' => TransferFailureCode.lowStorage,
+      'permissionDenied' => TransferFailureCode.permissionDenied,
+      'duplicateTransfer' => TransferFailureCode.duplicateTransfer,
+      'integrityCheckFailed' => TransferFailureCode.integrityCheckFailed,
+      'backgroundExecutionInterrupted' =>
+        TransferFailureCode.backgroundExecutionInterrupted,
+      _ => TransferFailureCode.unknown,
     };
   }
 }

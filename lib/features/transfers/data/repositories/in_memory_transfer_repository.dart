@@ -33,10 +33,7 @@ class InMemoryTransferRepository implements TransferRepository {
     _sequence += 1;
     final batchId =
         'draft-${createdAt.microsecondsSinceEpoch.toRadixString(36)}-${sequence.toRadixString(36)}';
-    final totalBytes = files.fold<int>(
-      0,
-      (sum, file) => sum + file.byteCount,
-    );
+    final totalBytes = files.fold<int>(0, (sum, file) => sum + file.byteCount);
 
     _batches.insert(
       0,
@@ -56,6 +53,16 @@ class InMemoryTransferRepository implements TransferRepository {
   }
 
   @override
+  Future<TransferBatch?> getBatch(String batchId) async {
+    for (final batch in _batches) {
+      if (batch.id == batchId) {
+        return batch;
+      }
+    }
+    return null;
+  }
+
+  @override
   Future<void> cancelBatch(String batchId) async {
     await _updateBatchStatus(batchId, TransferStatus.cancelled);
   }
@@ -70,10 +77,7 @@ class InMemoryTransferRepository implements TransferRepository {
     await _updateBatchStatus(batchId, TransferStatus.rejected);
   }
 
-  Future<void> _updateBatchStatus(
-    String batchId,
-    TransferStatus status,
-  ) async {
+  Future<void> _updateBatchStatus(String batchId, TransferStatus status) async {
     final batchIndex = _batches.indexWhere((batch) => batch.id == batchId);
     if (batchIndex < 0) {
       return;
@@ -81,21 +85,19 @@ class InMemoryTransferRepository implements TransferRepository {
 
     final batch = _batches[batchIndex];
     final fileStatus = switch (status) {
-      TransferStatus.cancelled || TransferStatus.rejected =>
-        TransferFileStatus.cancelled,
+      TransferStatus.cancelled ||
+      TransferStatus.rejected => TransferFileStatus.cancelled,
       TransferStatus.completed => TransferFileStatus.completed,
-      TransferStatus.uploading || TransferStatus.downloading =>
-        TransferFileStatus.inProgress,
-      TransferStatus.failed || TransferStatus.corrupted =>
-        TransferFileStatus.failed,
+      TransferStatus.uploading ||
+      TransferStatus.downloading => TransferFileStatus.inProgress,
+      TransferStatus.failed ||
+      TransferStatus.corrupted => TransferFileStatus.failed,
       _ => TransferFileStatus.pending,
     };
     _batches[batchIndex] = batch.copyWith(
       status: status,
       files: batch.files
-          .map(
-            (file) => file.copyWith(status: fileStatus),
-          )
+          .map((file) => file.copyWith(status: fileStatus))
           .toList(growable: false),
     );
     _emit();

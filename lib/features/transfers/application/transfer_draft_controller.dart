@@ -9,11 +9,14 @@ import 'package:neo_sapien/features/transfers/data/data_sources/firestore_transf
 import 'package:neo_sapien/features/transfers/data/repositories/hybrid_transfer_repository.dart';
 import 'package:neo_sapien/features/transfers/data/repositories/in_memory_transfer_repository.dart';
 import 'package:neo_sapien/features/transfers/data/services/file_picker_transfer_file_selector.dart';
+import 'package:neo_sapien/features/transfers/data/services/firebase_storage_transfer_engine.dart';
+import 'package:neo_sapien/features/transfers/data/services/transfer_remote_context_resolver.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/network_policy.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_batch.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_file.dart';
 import 'package:neo_sapien/features/transfers/domain/repositories/transfer_repository.dart';
 import 'package:neo_sapien/features/transfers/domain/services/transfer_draft_validator.dart';
+import 'package:neo_sapien/features/transfers/domain/services/transfer_engine.dart';
 import 'package:neo_sapien/features/transfers/domain/services/transfer_file_selector.dart';
 
 final transferRepositoryProvider = Provider<TransferRepository>((ref) {
@@ -21,9 +24,7 @@ final transferRepositoryProvider = Provider<TransferRepository>((ref) {
   final repository = HybridTransferRepository(
     localRepository: InMemoryTransferRepository(),
     remoteDataSource: ref.watch(firestoreTransferRemoteDataSourceProvider),
-    firebaseBootstrapService: ref.watch(firebaseBootstrapServiceProvider),
-    firebaseAuthDataSource: ref.watch(firebaseAuthDataSourceProvider),
-    identityRepository: ref.watch(identityRepositoryProvider),
+    remoteContextResolver: ref.watch(transferRemoteContextResolverProvider),
     transferTtl: environment.transferTtl,
   );
   ref.onDispose(repository.dispose);
@@ -35,6 +36,24 @@ final firestoreTransferRemoteDataSourceProvider =
       final firestore = ref.watch(firebaseFirestoreProvider);
       return FirestoreTransferRemoteDataSource(firestore);
     });
+
+final transferRemoteContextResolverProvider =
+    Provider<TransferRemoteContextResolver>((ref) {
+      return TransferRemoteContextResolver(
+        firebaseBootstrapService: ref.watch(firebaseBootstrapServiceProvider),
+        firebaseAuthDataSource: ref.watch(firebaseAuthDataSourceProvider),
+        identityRepository: ref.watch(identityRepositoryProvider),
+      );
+    });
+
+final transferEngineProvider = Provider<TransferEngine>((ref) {
+  return FirebaseStorageTransferEngine(
+    firebaseStorage: ref.watch(firebaseStorageProvider),
+    remoteDataSource: ref.watch(firestoreTransferRemoteDataSourceProvider),
+    transferRepository: ref.watch(transferRepositoryProvider),
+    remoteContextResolver: ref.watch(transferRemoteContextResolverProvider),
+  );
+});
 
 final transferFileSelectorProvider = Provider<TransferFileSelector>((ref) {
   return const FilePickerTransferFileSelector();
@@ -54,9 +73,10 @@ final transferBatchesProvider = StreamProvider<List<TransferBatch>>((ref) {
 });
 
 final transferDraftComposerProvider =
-    NotifierProvider<TransferDraftComposerController, TransferDraftComposerState>(
-      TransferDraftComposerController.new,
-    );
+    NotifierProvider<
+      TransferDraftComposerController,
+      TransferDraftComposerState
+    >(TransferDraftComposerController.new);
 
 @immutable
 class TransferDraftComposerState {
@@ -191,11 +211,13 @@ class TransferDraftComposerController
       ref
           .read(transferDraftValidatorProvider)
           .validateOrThrow(state.selectedFiles);
-      final batchId = await ref.read(transferRepositoryProvider).createDraft(
-        recipient: recipient,
-        files: state.selectedFiles,
-        networkPolicy: state.networkPolicy,
-      );
+      final batchId = await ref
+          .read(transferRepositoryProvider)
+          .createDraft(
+            recipient: recipient,
+            files: state.selectedFiles,
+            networkPolicy: state.networkPolicy,
+          );
 
       state = state.copyWith(
         isCreatingDraft: false,

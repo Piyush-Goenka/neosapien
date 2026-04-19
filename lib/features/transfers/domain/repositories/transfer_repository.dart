@@ -12,6 +12,8 @@ abstract interface class TransferRepository {
     required NetworkPolicy networkPolicy,
   });
 
+  Future<TransferBatch?> getBatch(String batchId);
+
   Future<void> cancelBatch(String batchId);
 
   Future<void> acceptBatch(String batchId);

@@ -36,7 +36,7 @@ class TransferBatch {
 
   double get progress {
     if (totalBytes <= 0) {
-      return 0;
+      return files.isEmpty ? 0 : 1;
     }
     return bytesTransferred / totalBytes;
   }

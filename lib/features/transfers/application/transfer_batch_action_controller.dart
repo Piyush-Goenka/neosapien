@@ -3,10 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neo_sapien/core/errors/app_exception.dart';
 import 'package:neo_sapien/features/transfers/application/transfer_draft_controller.dart';
 
-final transferBatchActionControllerProvider = NotifierProvider<
-    TransferBatchActionController, TransferBatchActionState>(
-  TransferBatchActionController.new,
-);
+final transferBatchActionControllerProvider =
+    NotifierProvider<TransferBatchActionController, TransferBatchActionState>(
+      TransferBatchActionController.new,
+    );
 
 @immutable
 class TransferBatchActionState {
@@ -42,11 +42,31 @@ class TransferBatchActionController extends Notifier<TransferBatchActionState> {
   }
 
   Future<void> accept(String batchId) {
-    return _run(batchId, () => ref.read(transferRepositoryProvider).acceptBatch(batchId));
+    return _run(
+      batchId,
+      () => ref.read(transferRepositoryProvider).acceptBatch(batchId),
+    );
   }
 
   Future<void> reject(String batchId) {
-    return _run(batchId, () => ref.read(transferRepositoryProvider).rejectBatch(batchId));
+    return _run(
+      batchId,
+      () => ref.read(transferRepositoryProvider).rejectBatch(batchId),
+    );
+  }
+
+  Future<void> startUpload(String batchId) {
+    return _run(
+      batchId,
+      () => ref.read(transferEngineProvider).enqueue(batchId),
+    );
+  }
+
+  Future<void> cancel(String batchId) {
+    return _run(
+      batchId,
+      () => ref.read(transferEngineProvider).cancel(batchId),
+    );
   }
 
   Future<void> _run(String batchId, Future<void> Function() action) async {

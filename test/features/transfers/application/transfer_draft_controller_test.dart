@@ -24,18 +24,16 @@ void main() {
       overrides: [
         appEnvironmentProvider.overrideWithValue(_testEnvironment()),
         transferFileSelectorProvider.overrideWithValue(
-          _FakeTransferFileSelector(
-            <TransferFile>[
-              const TransferFile(
-                id: 'file-a',
-                name: 'photo.heic',
-                byteCount: 120,
-                status: TransferFileStatus.pending,
-                mimeType: 'image/heic',
-                localPath: '/tmp/photo.heic',
-              ),
-            ],
-          ),
+          _FakeTransferFileSelector(<TransferFile>[
+            const TransferFile(
+              id: 'file-a',
+              name: 'photo.heic',
+              byteCount: 120,
+              status: TransferFileStatus.pending,
+              mimeType: 'image/heic',
+              localPath: '/tmp/photo.heic',
+            ),
+          ]),
         ),
         transferRepositoryProvider.overrideWithValue(repository),
       ],
@@ -61,7 +59,10 @@ void main() {
     expect(state.selectedFiles, isEmpty);
     expect(state.createdBatchId, 'draft-001');
     expect(repository.createdBatches, hasLength(1));
-    expect(repository.createdBatches.single.networkPolicy, NetworkPolicy.wifiOnly);
+    expect(
+      repository.createdBatches.single.networkPolicy,
+      NetworkPolicy.wifiOnly,
+    );
     expect(
       repository.createdBatches.single.recipientCode?.normalizedValue,
       'WXYZ2345',
@@ -113,6 +114,16 @@ final class _FakeTransferRepository implements TransferRepository {
 
   @override
   Future<void> rejectBatch(String batchId) async {}
+
+  @override
+  Future<TransferBatch?> getBatch(String batchId) async {
+    for (final batch in createdBatches) {
+      if (batch.id == batchId) {
+        return batch;
+      }
+    }
+    return null;
+  }
 
   @override
   Future<String> createDraft({

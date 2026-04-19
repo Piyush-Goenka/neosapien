@@ -5,12 +5,14 @@ import 'package:neo_sapien/core/utils/byte_count_formatter.dart';
 import 'package:neo_sapien/features/home/presentation/widgets/overview_card.dart';
 import 'package:neo_sapien/features/recipients/application/recipient_lookup_controller.dart';
 import 'package:neo_sapien/features/recipients/domain/entities/recipient.dart';
+import 'package:neo_sapien/features/transfers/application/transfer_batch_action_controller.dart';
 import 'package:neo_sapien/features/transfers/application/transfer_draft_controller.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/network_policy.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_batch.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_direction.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_file.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_status.dart';
+import 'package:neo_sapien/features/transfers/presentation/widgets/transfer_progress_summary.dart';
 import 'package:neo_sapien/shared/presentation/widgets/app_scaffold.dart';
 
 class SendScreen extends StatelessWidget {
@@ -38,6 +40,10 @@ class _SendScreenBody extends ConsumerWidget {
     final draftState = ref.watch(transferDraftComposerProvider);
     final draftController = ref.read(transferDraftComposerProvider.notifier);
     final transferBatches = ref.watch(transferBatchesProvider);
+    final actionState = ref.watch(transferBatchActionControllerProvider);
+    final actionController = ref.read(
+      transferBatchActionControllerProvider.notifier,
+    );
     final resolvedRecipient = lookupState.resolvedRecipient;
     final canCreateDraft =
         resolvedRecipient != null &&
@@ -106,8 +112,8 @@ class _SendScreenBody extends ConsumerWidget {
               children: <Widget>[
                 Expanded(
                   child: FilledButton.tonalIcon(
-                    onPressed: draftState.isPickingFiles ||
-                            draftState.isCreatingDraft
+                    onPressed:
+                        draftState.isPickingFiles || draftState.isCreatingDraft
                         ? null
                         : draftController.pickFiles,
                     icon: draftState.isPickingFiles
@@ -199,7 +205,9 @@ class _SendScreenBody extends ConsumerWidget {
                       ByteCountFormatter.format(draftState.totalSelectedBytes),
                     ),
                   ),
-                  Chip(label: Text(_networkPolicyLabel(draftState.networkPolicy))),
+                  Chip(
+                    label: Text(_networkPolicyLabel(draftState.networkPolicy)),
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -214,8 +222,8 @@ class _SendScreenBody extends ConsumerWidget {
             FilledButton.icon(
               onPressed: canCreateDraft
                   ? () => draftController.createDraft(
-                        recipient: resolvedRecipient,
-                      )
+                      recipient: resolvedRecipient,
+                    )
                   : null,
               icon: draftState.isCreatingDraft
                   ? const SizedBox.square(
@@ -234,15 +242,26 @@ class _SendScreenBody extends ConsumerWidget {
         const SizedBox(height: 16),
         OverviewCard(
           eyebrow: 'Outgoing drafts',
-          title: 'Outgoing transfer records are visible and cancellable.',
+          title: 'Outgoing transfers can now start upload and report progress.',
           subtitle:
               'Local fallback remains available, but Firebase-backed transfers '
-              'now use the same queue surface so send-side state stays unified.',
+              'now use the same queue surface so send-side state stays unified '
+              'while the sender pushes bytes into Firebase Storage.',
           children: <Widget>[
+            if (actionState.errorMessage != null) ...<Widget>[
+              _MessageRow(
+                icon: Icons.error_outline_rounded,
+                message: actionState.errorMessage!,
+                isError: true,
+              ),
+              const SizedBox(height: 12),
+            ],
             transferBatches.when(
               data: (batches) {
                 final outgoingBatches = batches
-                    .where((batch) => batch.direction == TransferDirection.outgoing)
+                    .where(
+                      (batch) => batch.direction == TransferDirection.outgoing,
+                    )
                     .toList(growable: false);
                 if (outgoingBatches.isEmpty) {
                   return const _EmptyDraftsState();
@@ -250,14 +269,21 @@ class _SendScreenBody extends ConsumerWidget {
 
                 return Column(
                   children: <Widget>[
-                    for (var index = 0;
-                        index < outgoingBatches.length;
-                        index += 1) ...<Widget>[
+                    for (
+                      var index = 0;
+                      index < outgoingBatches.length;
+                      index += 1
+                    ) ...<Widget>[
                       _DraftBatchCard(
                         batch: outgoingBatches[index],
-                        onCancel: () => draftController.cancelBatch(
+                        isActionPending: actionState.isPending(
                           outgoingBatches[index].id,
                         ),
+                        onStartUpload: () => actionController.startUpload(
+                          outgoingBatches[index].id,
+                        ),
+                        onCancel: () =>
+                            actionController.cancel(outgoingBatches[index].id),
                       ),
                       if (index < outgoingBatches.length - 1)
                         const SizedBox(height: 12),
@@ -439,13 +465,29 @@ class _ResolvedRecipientCard extends StatelessWidget {
 }
 
 class _DraftBatchCard extends StatelessWidget {
-  const _DraftBatchCard({required this.batch, required this.onCancel});
+  const _DraftBatchCard({
+    required this.batch,
+    required this.isActionPending,
+    required this.onStartUpload,
+    required this.onCancel,
+  });
 
   final TransferBatch batch;
+  final bool isActionPending;
+  final VoidCallback onStartUpload;
   final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
+    final canStartUpload =
+        batch.status == TransferStatus.queued ||
+        batch.status == TransferStatus.failed;
+    final canCancel =
+        batch.status != TransferStatus.cancelled &&
+        batch.status != TransferStatus.rejected &&
+        batch.status != TransferStatus.completed &&
+        batch.status != TransferStatus.pendingRecipient;
+
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
@@ -465,7 +507,7 @@ class _DraftBatchCard extends StatelessWidget {
                   ),
                 ),
               ),
-              Chip(label: Text(batch.status.name)),
+              Chip(label: Text(formatTransferStatus(batch.status))),
             ],
           ),
           const SizedBox(height: 8),
@@ -483,21 +525,59 @@ class _DraftBatchCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          for (final file in batch.files) ...<Widget>[
-            Text(
-              '${file.name} • ${ByteCountFormatter.format(file.byteCount)}',
-            ),
-            const SizedBox(height: 4),
-          ],
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FilledButton.tonalIcon(
-              onPressed: batch.status == TransferStatus.cancelled ? null : onCancel,
-              icon: const Icon(Icons.cancel_outlined),
-              label: const Text('Cancel draft'),
-            ),
+          TransferProgressSummary(
+            batch: batch,
+            statusOverride: switch (batch.status) {
+              TransferStatus.awaitingAcceptance =>
+                'Waiting for recipient acceptance',
+              TransferStatus.pendingRecipient =>
+                'Upload complete. Recipient download is next',
+              _ => null,
+            },
           ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: <Widget>[
+              if (canStartUpload)
+                FilledButton.icon(
+                  onPressed: isActionPending ? null : onStartUpload,
+                  icon: isActionPending
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          batch.status == TransferStatus.failed
+                              ? Icons.restart_alt_rounded
+                              : Icons.cloud_upload_rounded,
+                        ),
+                  label: Text(
+                    batch.status == TransferStatus.failed
+                        ? 'Retry upload'
+                        : 'Start upload',
+                  ),
+                ),
+              if (canCancel)
+                FilledButton.tonalIcon(
+                  onPressed: isActionPending ? null : onCancel,
+                  icon: const Icon(Icons.cancel_outlined),
+                  label: Text(
+                    batch.status == TransferStatus.uploading
+                        ? 'Cancel upload'
+                        : 'Cancel transfer',
+                  ),
+                ),
+            ],
+          ),
+          if (batch.status == TransferStatus.awaitingAcceptance) ...<Widget>[
+            const SizedBox(height: 12),
+            Text(
+              'Recipient must accept this transfer before upload can start.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
         ],
       ),
     );

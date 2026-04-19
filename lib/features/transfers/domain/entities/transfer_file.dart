@@ -15,6 +15,8 @@ class TransferFile {
     this.failure,
     this.localPath,
     this.sourceIdentifier,
+    this.storagePath,
+    this.downloadUrl,
   });
 
   final String id;
@@ -27,6 +29,8 @@ class TransferFile {
   final TransferFailure? failure;
   final String? localPath;
   final String? sourceIdentifier;
+  final String? storagePath;
+  final String? downloadUrl;
 
   double get progress {
     if (byteCount == 0) {
@@ -55,6 +59,8 @@ class TransferFile {
     Object? failure = _transferFileSentinel,
     Object? localPath = _transferFileSentinel,
     Object? sourceIdentifier = _transferFileSentinel,
+    Object? storagePath = _transferFileSentinel,
+    Object? downloadUrl = _transferFileSentinel,
   }) {
     return TransferFile(
       id: id ?? this.id,
@@ -75,6 +81,12 @@ class TransferFile {
       sourceIdentifier: sourceIdentifier == _transferFileSentinel
           ? this.sourceIdentifier
           : sourceIdentifier as String?,
+      storagePath: storagePath == _transferFileSentinel
+          ? this.storagePath
+          : storagePath as String?,
+      downloadUrl: downloadUrl == _transferFileSentinel
+          ? this.downloadUrl
+          : downloadUrl as String?,
     );
   }
 }
