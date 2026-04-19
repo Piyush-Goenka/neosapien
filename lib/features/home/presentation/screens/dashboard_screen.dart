@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:neo_sapien/app/router/app_section.dart';
+import 'package:neo_sapien/core/firebase/firebase_bootstrap_service.dart';
 import 'package:neo_sapien/core/providers/app_environment_provider.dart';
+import 'package:neo_sapien/core/providers/firebase_providers.dart';
 import 'package:neo_sapien/core/utils/byte_count_formatter.dart';
 import 'package:neo_sapien/features/home/presentation/widgets/overview_card.dart';
 import 'package:neo_sapien/features/identity/application/identity_controller.dart';
@@ -16,6 +18,7 @@ class DashboardScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final environment = ref.watch(appEnvironmentProvider);
     final identity = ref.watch(currentIdentityProvider);
+    final firebaseBootstrap = ref.watch(firebaseBootstrapProvider);
 
     return AppScaffold(
       currentSection: AppSection.dashboard,
@@ -25,11 +28,27 @@ class DashboardScreen extends ConsumerWidget {
         children: <Widget>[
           OverviewCard(
             eyebrow: 'Identity bootstrap',
-            title: 'Anonymous local identity is provisioned on first launch.',
+            title:
+                'Anonymous local identity is provisioned first, then upgraded to a registered code when Firebase is available.',
             subtitle:
-                'This becomes the base for Firebase anonymous auth and remote '
-                'short-code reservation in the next milestone.',
+                'This keeps the app bootable without secrets while still '
+                'making backend-backed addressing the default once configured.',
             children: <Widget>[_IdentityState(identity: identity)],
+          ),
+          const SizedBox(height: 16),
+          OverviewCard(
+            eyebrow: 'Backend readiness',
+            title:
+                'Firebase bootstrap controls whether real recipient addressing is active.',
+            subtitle:
+                'When runtime Firebase options are missing, the app falls back '
+                'to local-only identity instead of crashing.',
+            children: <Widget>[
+              _FirebaseBootstrapStateView(
+                firebaseBootstrap: firebaseBootstrap,
+                projectId: environment.firebase.projectId,
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           OverviewCard(
@@ -196,6 +215,67 @@ class _ChecklistRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _FirebaseBootstrapStateView extends StatelessWidget {
+  const _FirebaseBootstrapStateView({
+    required this.firebaseBootstrap,
+    required this.projectId,
+  });
+
+  final AsyncValue<FirebaseBootstrapState> firebaseBootstrap;
+  final String? projectId;
+
+  @override
+  Widget build(BuildContext context) {
+    return firebaseBootstrap.when(
+      data: (state) {
+        final icon = switch (state.status) {
+          FirebaseBootstrapStatus.ready => Icons.cloud_done_rounded,
+          FirebaseBootstrapStatus.unconfigured => Icons.cloud_off_rounded,
+          FirebaseBootstrapStatus.failed => Icons.error_outline_rounded,
+        };
+
+        final color = switch (state.status) {
+          FirebaseBootstrapStatus.ready => Theme.of(
+            context,
+          ).colorScheme.primary,
+          FirebaseBootstrapStatus.unconfigured => Theme.of(
+            context,
+          ).colorScheme.secondary,
+          FirebaseBootstrapStatus.failed => Theme.of(context).colorScheme.error,
+        };
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Icon(icon, color: color),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    state.message,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  if (projectId != null) ...<Widget>[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Project: $projectId',
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+      loading: () => const LinearProgressIndicator(),
+      error: (error, stackTrace) => Text(error.toString()),
     );
   }
 }

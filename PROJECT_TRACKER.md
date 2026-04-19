@@ -6,11 +6,11 @@
 - Platforms: Flutter app with full Android + iPhone parity.
 - Primary bonus: Pigeon-based background transfer on Android and iOS.
 - Secondary bonus: Native picker + native save flow if core is already green.
-- Current phase: M0 Foundation
+- Current phase: M1 Identity And Addressing
 - Overall status: [/]
-- Current focus: Finish M0 by wiring Firebase, Firestore code reservation, and relay scaffolding onto the new app shell and typed domain contracts.
-- Next milestone: M0 Foundation
-- Latest blocker: Firebase, FCM, and Cloud Run relay are not configured yet.
+- Current focus: Validate the new Firebase bootstrap and Firestore registration flow against a real Firebase project, then finish the identity/addressing milestone on physical devices.
+- Next milestone: M1 Identity And Addressing
+- Latest blocker: Real Firebase project credentials and device validation are still missing, so the new runtime bootstrap and Firestore flows are implemented but not yet verified end to end.
 - Demo readiness: [ ] Not ready
 - Submission readiness: [ ] Not ready
 
@@ -26,11 +26,15 @@
 - Transfer domain contracts added: typed statuses, failure codes, repository interfaces, network policy, and transfer entities.
 - Pigeon contract scaffold added for future Android and iOS native background-transfer integration.
 - Project hygiene added: stricter analyzer rules, `.env.example`, project-specific README baseline, updated `.gitignore`.
-- Foundation validation completed: `flutter analyze` passes and `flutter test` passes.
+- Firebase runtime bootstrap added through `--dart-define` configuration instead of checked-in secret files.
+- Hybrid identity repository added: local fallback, Firebase anonymous auth, and Firestore-backed short-code reservation when configured.
+- Recipient lookup controller and send-screen lookup UI added with fast invalid-code, missing-code, and self-send failure handling.
+- Profile actions added for copying the short code and retrying registration after Firebase setup changes.
+- Foundation validation completed: `flutter analyze` passes and `flutter test` passes after the Firebase/addressing slice.
 
 ### Left To Do
-- Finish `M0 Foundation` by wiring Firebase project setup, Firebase Auth, Firestore, FCM, Storage, and relay configuration.
-- Implement `M1 Identity And Addressing`: server-backed short-code reservation, collision handling, recipient lookup, invalid-code UX, and profile sharing flow.
+- Finish `M0 Foundation` by supplying real Firebase project values, validating Android+iPhone bootstrap, and confirming Firebase plugin setup on both platforms.
+- Finish `M1 Identity And Addressing`: validate server-backed short-code reservation on a real Firestore project, confirm collision handling behavior, and complete profile-sharing polish.
 - Implement `M2 Core Transfer Happy Path`: real file selection, batch creation, internet upload/download, sender and recipient progress, and cross-device transfer in both directions.
 - Implement `M3 Resilience And Starred Cases`: offline recipient handling, network-drop recovery, large-file streaming, multi-file partial failure, permission denial, incoming-while-closed flow, and TLS-backed transport.
 - Implement `M4 Native Background Transfer Bonus`: Android foreground service/WorkManager plus iOS background `URLSession` through the Pigeon bridge.
@@ -67,9 +71,9 @@
 - [x] Anonymous onboarding with local identity provisioning
   - Done when: First launch provisions identity without email, password, or phone number.
   - Evidence: `LocalIdentityRepository` + `CurrentIdentityController` provision and persist a local identity via secure storage; surfaced in dashboard/profile and covered by passing widget and unit tests on 2026-04-19.
-- [ ] Short-code identity generation and registration
+- [/] Short-code identity generation and registration
   - Done when: User receives a stable human-friendly code and it resolves correctly from another device.
-  - Evidence:
+  - Evidence: `HybridIdentityRepository` now attempts Firestore-backed registration with collision retries and persists the reserved code locally; still pending validation against a real Firebase project.
 - [ ] Send one or more media files to a short code
   - Done when: Images, video, audio, documents, and arbitrary files can be sent in a single batch.
   - Evidence:
@@ -84,12 +88,12 @@
   - Evidence:
 
 ### 4.2 Starred Edge Cases
-- [ ] Short-code collisions handled
+- [/] Short-code collisions handled
   - Done when: Reservation is guaranteed unique or collision retries are transparent.
-  - Evidence:
-- [ ] Invalid recipient code fails fast with clear UI
+  - Evidence: `IdentityRegistryRemoteDataSource.reserveIdentity` retries candidate codes and uses Firestore transactions to avoid duplicate claims; still pending live-project verification.
+- [/] Invalid recipient code fails fast with clear UI
   - Done when: Sender cannot start upload to a non-existent code.
-  - Evidence:
+  - Evidence: `RecipientLookupController` blocks malformed codes immediately and shows a clear "No device is registered under that code yet" message when Firestore lookup misses; covered by `recipient_lookup_controller_test.dart`.
 - [ ] Recipient offline behavior implemented
   - Done when: Queued delivery or explicit rejection policy is implemented and documented.
   - Evidence:
@@ -116,9 +120,9 @@
 - [x] Ambiguous characters removed from code alphabet
   - Done when: `O/0`, `I/l/1` style ambiguity cannot be issued.
   - Evidence: `RecipientCodeCodec.alphabet` excludes ambiguous characters and `short_code_generator_test.dart` verifies generated codes avoid them.
-- [ ] Self-send policy implemented
+- [x] Self-send policy implemented
   - Done when: Self-send is either blocked or explicitly supported with clear UX.
-  - Evidence:
+  - Evidence: `RecipientLookupController.resolveRecipient` compares the target code against the current local identity and blocks self-send with explicit UI copy; covered by `recipient_lookup_controller_test.dart`.
 - [ ] Duplicate delivery dedupes by transfer ID
   - Done when: Receiver does not duplicate files due to retries.
   - Evidence:
@@ -168,11 +172,11 @@
 
 - [/] M0 Foundation
   - Done when: Flutter app skeleton, env management, CI/lint/test setup, Firebase project, and architecture boundaries are established.
-  - Evidence: Flutter app scaffolded at repo root, `.env.example` added, app shell and domain contracts implemented, `flutter analyze` clean, `flutter test` passing on 2026-04-19. Firebase project wiring is the remaining M0 gap.
+  - Evidence: Flutter app scaffolded at repo root, `.env.example` expanded with Firebase keys, app shell and domain contracts implemented, runtime Firebase bootstrap added, `flutter analyze` clean, `flutter test` passing on 2026-04-19. Real Firebase project values and device verification are the remaining M0 gap.
 
-- [ ] M1 Identity And Addressing
+- [/] M1 Identity And Addressing
   - Done when: Anonymous identity, short-code generation, lookup, profile display, and invalid code handling are working.
-  - Evidence:
+  - Evidence: hybrid identity registration, Firestore code reservation, recipient lookup repository, and send-screen lookup UI are implemented in code; live project verification is still pending.
 
 - [ ] M2 Core Transfer Happy Path
   - Done when: Cross-device upload/download works in both directions with progress and final statuses.
@@ -208,12 +212,12 @@
   - Evidence: stricter `analysis_options.yaml` added; `flutter analyze` and `flutter test` both passed on 2026-04-19.
 
 ### 6.2 Backend And Relay
-- [ ] Configure Firebase Auth, Firestore, FCM, Storage
+- [/] Configure Firebase Auth, Firestore, FCM, Storage
   - Done when: Anonymous auth, realtime state, push, and storage are wired.
-  - Evidence:
-- [ ] Implement unique short-code reservation flow
+  - Evidence: Firebase packages added, runtime bootstrap service added, and providers for auth/firestore/storage/messaging now exist; actual project credentials and FCM/runtime verification remain pending.
+- [/] Implement unique short-code reservation flow
   - Done when: Collision-safe registration exists.
-  - Evidence:
+  - Evidence: `IdentityRegistryRemoteDataSource` implements Firestore-backed `users/{uid}` and `codes/{shortCode}` writes with transaction-based reservation and retry.
 - [ ] Deploy resumable relay on Cloud Run
   - Done when: Streaming upload/download and resumption path are available.
   - Evidence:
@@ -225,9 +229,9 @@
 - [x] Onboarding and profile screen
   - Done when: User can see and share their code.
   - Evidence: dashboard/profile routes render the provisioned local identity and runtime configuration through the new app shell.
-- [ ] Recipient lookup and send composer
+- [/] Recipient lookup and send composer
   - Done when: Sender can resolve code and prepare a batch.
-  - Evidence:
+  - Evidence: send screen now includes backend-backed recipient lookup with validation, self-send blocking, and missing-recipient messaging; file selection and batch creation are still pending.
 - [ ] Sender progress UI
   - Done when: Per-file and aggregate states are visible and actionable.
   - Evidence:
@@ -312,6 +316,11 @@
   - Mitigation: Keep client contracts fixed, wire anonymous auth/code reservation first, and defer non-critical polish.
   - Owner: Piyush
   - Status: Open
+- Risk: Runtime-configured Firebase may behave differently on Android and iPhone if platform app IDs or bundle identifiers are wrong.
+  - Impact: Identity registration and recipient lookup can appear implemented in code but fail on-device.
+  - Mitigation: Validate Android and iPhone bootstrap separately with real credentials before moving on to transfer work.
+  - Owner: Piyush
+  - Status: Open
 - Risk:
   - Impact:
   - Mitigation:
@@ -328,10 +337,10 @@
   - Decision: Build the client foundation around typed domain contracts and local anonymous identity before Firebase/relay integration.
   - Why: This locks the system boundaries early and gives the backend and native layers stable interfaces to target.
   - Tradeoff: End-to-end transfer is not available yet even though the app shell is now production-grade.
-- Date:
-  - Decision:
-  - Why:
-  - Tradeoff:
+- Date: 2026-04-19
+  - Decision: Initialize Firebase from explicit runtime defines instead of checked-in platform secret files.
+  - Why: This keeps secrets out of the repo and makes Android+iPhone setup reproducible without generated local files.
+  - Tradeoff: Real device verification now depends on supplying correct platform-specific runtime values before backend-backed flows can be exercised.
 - Date:
   - Decision:
   - Why:
@@ -345,12 +354,19 @@
 - New blocker: Firebase, FCM, Firestore code reservation, and relay deployment are still pending.
 - Next step: Implement Firebase anonymous auth, short-code reservation/lookup, and the first real send/inbox backend path.
 
-### Session YYYY-MM-DD HH:MM
-- Planned work:
-- Completed work:
-- Evidence added:
-- New blocker:
-- Next step:
+### Session 2026-04-19 16:41
+- Planned work: Add Firebase bootstrap, hybrid identity registration, and recipient lookup without breaking the foundation architecture.
+- Completed work: Added Firebase runtime configuration, bootstrap service, hybrid local+remote identity repository, Firestore code reservation logic, and recipient lookup UI/controller.
+- Evidence added: `flutter analyze` clean; `flutter test` passed; `.env.example` and README updated with Firebase runtime keys.
+- New blocker: Real Firebase credentials and physical-device validation are still required before the addressing flow can be marked fully complete.
+- Next step: Configure a live Firebase project, validate registration and lookup on Android+iPhone, then start the first real transfer draft flow.
+
+### Session 2026-04-19 16:46
+- Planned work: Harden the addressing slice with user-facing actions and tests for the new lookup rules.
+- Completed work: Added copy-code and refresh-registration actions in profile, plus controller tests for malformed codes, self-send blocking, and missing-recipient messaging.
+- Evidence added: `flutter analyze` clean; `flutter test` passed with the new recipient lookup controller tests.
+- New blocker: Backend-backed registration and lookup still need real Firebase credentials and device verification.
+- Next step: Configure Firebase values locally and validate Android+iPhone registration plus lookup before building transfer drafts.
 
 ## 11. Final Submission Checklist
 - [ ] Signed debug APK tested on clean Android device

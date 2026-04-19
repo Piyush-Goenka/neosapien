@@ -15,3 +15,11 @@ final class ConfigurationException extends AppException {
 final class IdentityPersistenceException extends AppException {
   const IdentityPersistenceException(super.message, {super.cause});
 }
+
+final class RemoteIdentityException extends AppException {
+  const RemoteIdentityException(super.message, {super.cause});
+}
+
+final class RecipientLookupException extends AppException {
+  const RecipientLookupException(super.message, {super.cause});
+}

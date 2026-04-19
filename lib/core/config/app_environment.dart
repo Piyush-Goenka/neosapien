@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:neo_sapien/core/errors/app_exception.dart';
+import 'package:neo_sapien/core/firebase/firebase_runtime_options.dart';
 
 @immutable
 class AppEnvironment {
@@ -10,6 +11,7 @@ class AppEnvironment {
     required this.maxBatchSizeBytes,
     required this.maxFilesPerBatch,
     required this.meteredWarningThresholdBytes,
+    required this.firebase,
   });
 
   factory AppEnvironment.fromDartDefines() {
@@ -39,6 +41,17 @@ class AppEnvironment {
         'METERED_WARNING_THRESHOLD_BYTES',
         fallback: 50 * 1024 * 1024,
       ),
+      firebase: FirebaseRuntimeOptions(
+        apiKey: _optionalStringFromDefine('FIREBASE_API_KEY'),
+        projectId: _optionalStringFromDefine('FIREBASE_PROJECT_ID'),
+        messagingSenderId: _optionalStringFromDefine(
+          'FIREBASE_MESSAGING_SENDER_ID',
+        ),
+        storageBucket: _optionalStringFromDefine('FIREBASE_STORAGE_BUCKET'),
+        androidAppId: _optionalStringFromDefine('FIREBASE_ANDROID_APP_ID'),
+        iosAppId: _optionalStringFromDefine('FIREBASE_IOS_APP_ID'),
+        iosBundleId: _optionalStringFromDefine('FIREBASE_IOS_BUNDLE_ID'),
+      ),
     );
   }
 
@@ -50,6 +63,7 @@ class AppEnvironment {
   final int maxBatchSizeBytes;
   final int maxFilesPerBatch;
   final int meteredWarningThresholdBytes;
+  final FirebaseRuntimeOptions firebase;
 
   static int _intFromDefine(String key, {required int fallback}) {
     final value = String.fromEnvironment(key, defaultValue: '');
@@ -63,6 +77,15 @@ class AppEnvironment {
     }
 
     return parsed;
+  }
+
+  static String? _optionalStringFromDefine(String key) {
+    final value = String.fromEnvironment(key, defaultValue: '');
+    if (value.isEmpty) {
+      return null;
+    }
+
+    return value;
   }
 
   static Uri _validatedUri(String value, {required String keyName}) {

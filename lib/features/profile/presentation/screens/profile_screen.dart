@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neo_sapien/app/router/app_section.dart';
 import 'package:neo_sapien/core/providers/app_environment_provider.dart';
+import 'package:neo_sapien/core/providers/firebase_providers.dart';
 import 'package:neo_sapien/core/utils/byte_count_formatter.dart';
 import 'package:neo_sapien/features/home/presentation/widgets/overview_card.dart';
 import 'package:neo_sapien/features/identity/application/identity_controller.dart';
@@ -14,6 +16,7 @@ class ProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final identity = ref.watch(currentIdentityProvider);
     final environment = ref.watch(appEnvironmentProvider);
+    final firebaseBootstrap = ref.watch(firebaseBootstrapProvider);
 
     return AppScaffold(
       currentSection: AppSection.profile,
@@ -44,6 +47,90 @@ class ProfileScreen extends ConsumerWidget {
                       _ProfileField(
                         label: 'Created at',
                         value: value.createdAt.toIso8601String(),
+                      ),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: <Widget>[
+                          FilledButton.tonalIcon(
+                            onPressed: () async {
+                              await Clipboard.setData(
+                                ClipboardData(
+                                  text: value.shortCode.displayValue,
+                                ),
+                              );
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Short code copied to clipboard.',
+                                    ),
+                                  ),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.copy_rounded),
+                            label: const Text('Copy code'),
+                          ),
+                          FilledButton.tonalIcon(
+                            onPressed: () async {
+                              await ref
+                                  .read(currentIdentityProvider.notifier)
+                                  .refresh();
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Identity refresh completed. If Firebase is configured, registration was retried.',
+                                    ),
+                                  ),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('Refresh registration'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  );
+                },
+                loading: () => const LinearProgressIndicator(),
+                error: (error, stackTrace) {
+                  return Text(
+                    error.toString(),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          OverviewCard(
+            eyebrow: 'Firebase',
+            title:
+                'Runtime Firebase configuration is provided through dart-defines.',
+            children: <Widget>[
+              firebaseBootstrap.when(
+                data: (state) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      _ProfileField(
+                        label: 'Bootstrap status',
+                        value: state.status.name,
+                      ),
+                      _ProfileField(
+                        label: 'Bootstrap message',
+                        value: state.message,
+                      ),
+                      _ProfileField(
+                        label: 'Project ID',
+                        value:
+                            environment.firebase.projectId ?? 'Not configured',
                       ),
                     ],
                   );
