@@ -8,9 +8,9 @@
 - Secondary bonus: Native picker + native save flow if core is already green.
 - Current phase: M2 Core Transfer Happy Path
 - Overall status: [/]
-- Current focus: Validate and extend the direct Firebase Storage upload path with recipient download/save while keeping Firestore as the shared control plane.
+- Current focus: Validate the now-complete Firebase Storage upload/download happy path on real devices and harden the remaining failure semantics around it.
 - Next milestone: M2 Core Transfer Happy Path
-- Latest blocker: Recipient download/save, Firestore/Storage rules, and live Firebase/device validation are still pending; current upload retry restarts incomplete files rather than true resumable chunk recovery.
+- Latest blocker: Firestore/Storage rules, live Firebase/device validation, and stronger mid-transfer recovery are still pending; retry currently restarts the incomplete file cleanly instead of resuming chunk offsets.
 - Demo readiness: [ ] Not ready
 - Submission readiness: [ ] Not ready
 
@@ -38,13 +38,15 @@
 - Transfer action tests now cover recipient-side accept handling in addition to sender draft creation.
 - Sender-side upload initiation is now wired through a Firebase Storage transfer engine that updates Firestore with batch and per-file progress.
 - Send and inbox screens now render shared per-file plus aggregate upload progress from the same Firestore-backed transfer state.
+- Recipient-side download/save is now wired through the same Firebase Storage engine, writing received files into app storage, persisting saved paths locally, and surfacing completed history in the inbox.
+- Receiver-side save conflicts now rename deterministically inside the per-batch local save directory instead of clobbering an existing file.
 - Foundation validation completed: `flutter analyze` passes and `flutter test` passes after the Firebase/addressing slice.
 
 ### Left To Do
 - Supply live Firebase project values, enable the required Firebase services, and validate bootstrap/registration/lookup on Android and iPhone.
 - Add Firestore rules, Storage rules, and any required indexes for `users`, `codes`, and `transfers`.
 - Validate the current direct-to-Firebase-Storage upload path on real devices and decide whether to keep it or swap the data plane to a Cloud Run resumable relay.
-- Implement receiver download, save-to-device flow, and completed-history state.
+- Validate and harden the new receiver download/save flow on real devices, especially around low storage, permissions, and OEM/background behavior.
 - Harden all starred edge cases: offline recipient semantics, network-drop handling, large-file streaming, multi-file failure isolation, permission denial, and closed-app discovery.
 - Add integrity/hash verification, low-storage checks, dedupe, filename conflict handling, network transition handling, and process-death recovery.
 - Implement bonus/native work only after the core path is stable: Pigeon codegen hookup, Android background transfer, iOS background transfer, and optional native picker/save.
@@ -53,8 +55,8 @@
 ## 1B. Remaining Work In Order
 - [ ] Configure a live Firebase project for Android and iPhone and prove bootstrap, anonymous auth, short-code reservation, recipient lookup, accepted upload start, and shared progress on devices.
 - [ ] Add Firestore rules, Storage rules, indexes, and a documented local/dev setup for the current control-plane collections.
-- [ ] Add recipient-side download orchestration, save flow, and completed-state history on top of the existing upload path.
 - [ ] Harden the current data plane into the final transport choice: either keep direct Firebase Storage with a defensible restart policy or replace it with the planned Cloud Run resumable relay.
+- [ ] Validate and harden recipient-side download/save on physical devices, including low-storage handling, permission edge cases, and reopened-app behavior.
 - [ ] Implement starred delivery/failure behavior: recipient offline handling, network interruption recovery, large-file streaming, multiple-file partial failure isolation, and graceful permission denial.
 - [ ] Add closed-app discovery with notifications/deep links plus honest README coverage of OEM/background limits.
 - [ ] Implement integrity, storage, and recovery hardening: hash verification, low-storage checks, duplicate dedupe, save conflicts, network transitions, airplane mode, and process-death recovery.
@@ -96,16 +98,16 @@
   - Evidence: `HybridIdentityRepository` now attempts Firestore-backed registration with collision retries and persists the reserved code locally; still pending validation against a real Firebase project.
 - [/] Send one or more media files to a short code
   - Done when: Images, video, audio, documents, and arbitrary files can be sent in a single batch.
-  - Evidence: sender-side file picking, MIME inference, preflight validation, transfer creation, recipient accept/reject, sender upload start, and Firebase Storage-backed outgoing upload progress now flow through `TransferDraftComposerController`, `HybridTransferRepository`, `FirebaseStorageTransferEngine`, and the shared Firestore transfer feed; recipient download/save is still pending.
+  - Evidence: sender-side file picking, MIME inference, preflight validation, transfer creation, recipient accept/reject, sender upload start, recipient download/save, and Firebase Storage-backed shared transfer progress now flow through `TransferDraftComposerController`, `HybridTransferRepository`, `FirebaseStorageTransferEngine`, the local download-state data source, and the shared Firestore transfer feed. Live device validation is still pending.
 - [/] Works across distance / internet relay
   - Done when: Transfers do not depend on proximity, LAN, or localhost.
-  - Evidence: identity, recipient lookup, transfer creation, inbox discovery, and sender-side uploads now run through Firebase Auth, Firestore, and Firebase Storage over the internet when configured; the final resumable relay decision and recipient download path are still pending.
+  - Evidence: identity, recipient lookup, transfer creation, inbox discovery, sender-side uploads, and recipient-side downloads now run through Firebase Auth, Firestore, and Firebase Storage over the internet when configured; the final resumable relay decision and device validation are still pending.
 - [ ] Real-device proof path
   - Done when: At least one Android phone and one iPhone complete end-to-end tests.
   - Evidence:
 - [/] Real-time progress and final success/failure states
   - Done when: Sender and recipient both see state transitions without manual refresh.
-  - Evidence: outgoing sender uploads now write aggregate and per-file progress into Firestore so both the sender queue and recipient inbox update live from the same transfer documents; receiver download/save completion states are still pending.
+  - Evidence: outgoing uploads and incoming downloads now write aggregate and per-file progress into Firestore so both the sender queue and recipient inbox update live from the same transfer documents, while local saved paths are merged back into completed receiver history. Real-device verification is still pending.
 
 ### 4.2 Starred Edge Cases
 - [/] Short-code collisions handled
@@ -119,13 +121,13 @@
   - Evidence: remote transfer records now persist in Firestore and can appear in the recipient inbox when the user later opens the app, but TTL enforcement, explicit expiry behavior, and push-based discovery are still pending.
 - [/] Network drop mid-transfer handled
   - Done when: Resume, restart, or fail-cleanly policy works and is tested.
-  - Evidence: `FirebaseStorageTransferEngine` now maps upload failures into a recoverable failed state and exposes retry, which currently restarts the incomplete file cleanly rather than resuming chunk offsets; device validation and a stronger resumable strategy are still pending.
+  - Evidence: `FirebaseStorageTransferEngine` now maps both upload and download failures into recoverable failed states and exposes retry, which currently restarts the incomplete file cleanly rather than resuming chunk offsets; device validation and a stronger resumable strategy are still pending.
 - [/] Large files handled without OOM
   - Done when: Hard size ceiling is enforced and near-limit files stream safely.
   - Evidence: `TransferDraftValidator` now enforces per-file and per-batch ceilings before upload, `FilePicker.pickFiles(withData: false)` keeps selection metadata-only, and `FirebaseStorageTransferEngine.putFile` streams bytes from disk instead of loading whole files into memory; resumable chunk recovery is still pending.
 - [/] Multiple files at once with partial failure isolation
   - Done when: One file can fail without killing the whole batch.
-  - Evidence: multi-file batch selection, per-file metadata, and per-file progress are implemented in the draft, upload, and remote transfer record layers, but a failed file still stops the batch today so full partial-failure isolation is still pending.
+  - Evidence: multi-file batch selection, per-file metadata, and per-file progress are implemented in the draft, upload, download, and remote transfer record layers, and already-saved receiver files are preserved across retry, but a failed file still stops the active batch today so full partial-failure isolation is still pending.
 - [ ] Permission denial degrades gracefully
   - Done when: Denied storage/photos/notifications does not crash the app.
   - Evidence:
@@ -152,9 +154,9 @@
 - [/] Unusual MIME and zero-byte files do not crash
   - Done when: `.heic`, `.webp`, `.mov`, extensionless, and empty files are handled.
   - Evidence: `MimeTypeGuesser` now classifies common mobile formats with `application/octet-stream` fallback, and `transfer_draft_validator_test.dart` explicitly covers zero-byte-file acceptance; end-to-end transport/save coverage is still pending.
-- [ ] Filename conflict policy implemented
+- [x] Filename conflict policy implemented
   - Done when: Save collisions rename deterministically.
-  - Evidence:
+  - Evidence: `ReceivedTransferFileStore.createTargetFile` now saves incoming files under a per-batch app-storage directory and deterministically appends ` (2)`, ` (3)`, and so on when a filename already exists; covered by `received_transfer_file_store_test.dart`.
 - [ ] Corruption detection via hash verification
   - Done when: Sender hash and receiver hash are compared and mismatch is actionable.
   - Evidence:
@@ -200,7 +202,7 @@
 
 - [/] M2 Core Transfer Happy Path
   - Done when: Cross-device upload/download works in both directions with progress and final statuses.
-  - Evidence: sender-side file selection, preflight validation, network-policy choice, Firestore-backed transfer creation, outgoing visibility, live inbox discovery, accept/reject actions, Firebase Storage upload initiation, and shared sender/recipient upload progress are now implemented and covered by passing analyzer/tests; recipient download/save, device validation, and the final resumable transport decision are still pending.
+  - Evidence: sender-side file selection, preflight validation, network-policy choice, Firestore-backed transfer creation, live inbox discovery, accept/reject actions, Firebase Storage upload initiation, recipient download/save into app storage, completed receiver history, and shared sender/recipient progress are now implemented and covered by passing analyzer/tests; device validation and the final resumable transport decision are still pending.
 
 - [ ] M3 Resilience And Starred Cases
   - Done when: All starred edge cases are implemented and verified on both platforms.

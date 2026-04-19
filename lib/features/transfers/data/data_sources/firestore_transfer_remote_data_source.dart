@@ -167,7 +167,7 @@ class FirestoreTransferRemoteDataSource {
     }
   }
 
-  Future<void> updateOutgoingTransferBatch({
+  Future<void> updateTransferBatch({
     required String batchId,
     required String currentUserUid,
     required TransferStatus status,

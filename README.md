@@ -4,7 +4,7 @@ Cross-device file sharing app for the NeoSapien Mobile Developer Intern Assessme
 
 ## Current Status
 
-- Milestone: `M2 Core Transfer Happy Path` (sender upload and shared progress implemented; receiver download/save still pending)
+- Milestone: `M2 Core Transfer Happy Path` (shared upload/download progress plus receiver save/history implemented; real-device validation and harder edge cases still pending)
 - Platforms: `Android + iPhone`
 - Architecture: `Flutter + Riverpod + GoRouter + Firebase control plane + Firebase Storage data plane + local fallback`
 - Bonus track: `Pigeon` platform bridge for background transfers on Android and iOS
@@ -23,6 +23,8 @@ Cross-device file sharing app for the NeoSapien Mobile Developer Intern Assessme
 - Live inbox discovery with recipient accept/reject actions on incoming transfer records
 - Firebase Storage-backed sender upload engine with Firestore batch/file progress updates
 - Shared per-file and aggregate upload progress rendering in both the sender queue and recipient inbox
+- Firebase Storage-backed recipient download/save flow into app documents with locally persisted completed history
+- Deterministic receiver-side filename conflict handling inside the local save directory
 
 ## Architecture Snapshot
 
@@ -85,8 +87,8 @@ lib/
 - `file_picker` is used for the core sender-draft slice so batch composition can move forward before native picker bonus work.
 - When Firebase is configured, the app now creates remote transfer records that appear in the recipient inbox without a manual refresh.
 - After the recipient accepts, the sender can start a Firebase Storage upload and both sender and recipient see shared per-file plus aggregate upload progress from the same Firestore documents.
-- Current retry behavior restarts the incomplete file cleanly after failure; true chunk-resume and background survival are still future slices.
-- Recipient download, save-to-device, and completed-history behavior are not implemented yet.
+- Once upload completes, the recipient can download and save the batch into app storage, retry failed saves, and see completed local history with persisted file paths after relaunch.
+- Current retry behavior restarts the incomplete file cleanly after failure; true chunk-resume, low-storage preflight, and background survival are still future slices.
 - Draft validation already enforces file-count, per-file, and total batch-size limits without loading file data into memory.
 - Native picker integration remains planned as a bonus replacement once the core internet transfer path is stable.
 
@@ -98,8 +100,8 @@ dart run pigeon --input pigeons/native_transfer_bridge.dart
 
 ## Next Implementation Steps
 
-- Validate Firebase code reservation, accepted upload start, and shared progress end to end on real devices
-- Add recipient download, save-to-device flow, and completed-history state
+- Validate Firebase code reservation, accepted upload start, and the new receiver download/save path end to end on real devices
 - Decide whether to keep the current direct Firebase Storage path or replace it with the planned Cloud Run resumable relay for stronger resume semantics
+- Add low-storage checks, permission-edge handling, and save-integrity hardening on top of the current happy path
 - Add push notifications and closed-app discovery
 - Implement background transfers through the Pigeon bridge on Android and iOS

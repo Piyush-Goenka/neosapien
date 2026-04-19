@@ -59,6 +59,30 @@ void main() {
       isNull,
     );
   });
+
+  test('starts download through the transfer engine', () async {
+    final repository = _FakeTransferRepository();
+    final engine = _FakeTransferEngine();
+    final container = ProviderContainer(
+      overrides: [
+        transferRepositoryProvider.overrideWithValue(repository),
+        transferEngineProvider.overrideWithValue(engine),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final controller = container.read(
+      transferBatchActionControllerProvider.notifier,
+    );
+
+    await controller.download('batch-003');
+
+    expect(engine.enqueuedBatchIds, <String>['batch-003']);
+    expect(
+      container.read(transferBatchActionControllerProvider).errorMessage,
+      isNull,
+    );
+  });
 }
 
 final class _FakeTransferRepository implements TransferRepository {

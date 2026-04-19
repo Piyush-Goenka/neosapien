@@ -62,6 +62,13 @@ class TransferBatchActionController extends Notifier<TransferBatchActionState> {
     );
   }
 
+  Future<void> download(String batchId) {
+    return _run(
+      batchId,
+      () => ref.read(transferEngineProvider).enqueue(batchId),
+    );
+  }
+
   Future<void> cancel(String batchId) {
     return _run(
       batchId,

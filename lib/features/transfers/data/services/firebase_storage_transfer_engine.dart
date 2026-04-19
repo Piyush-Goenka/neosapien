@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:neo_sapien/core/errors/app_exception.dart';
 import 'package:neo_sapien/features/transfers/data/data_sources/firestore_transfer_remote_data_source.dart';
+import 'package:neo_sapien/features/transfers/data/data_sources/transfer_download_local_data_source.dart';
+import 'package:neo_sapien/features/transfers/data/services/received_transfer_file_store.dart';
 import 'package:neo_sapien/features/transfers/data/services/transfer_remote_context_resolver.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_batch.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_direction.dart';
@@ -20,30 +22,36 @@ class FirebaseStorageTransferEngine implements TransferEngine {
     required FirebaseStorage firebaseStorage,
     required FirestoreTransferRemoteDataSource remoteDataSource,
     required TransferRepository transferRepository,
+    required TransferDownloadLocalDataSource downloadLocalDataSource,
+    required ReceivedTransferFileStore receivedTransferFileStore,
     required TransferRemoteContextResolver remoteContextResolver,
   }) : _firebaseStorage = firebaseStorage,
        _remoteDataSource = remoteDataSource,
        _transferRepository = transferRepository,
+       _downloadLocalDataSource = downloadLocalDataSource,
+       _receivedTransferFileStore = receivedTransferFileStore,
        _remoteContextResolver = remoteContextResolver;
 
   final FirebaseStorage _firebaseStorage;
   final FirestoreTransferRemoteDataSource _remoteDataSource;
   final TransferRepository _transferRepository;
+  final TransferDownloadLocalDataSource _downloadLocalDataSource;
+  final ReceivedTransferFileStore _receivedTransferFileStore;
   final TransferRemoteContextResolver _remoteContextResolver;
-  final Map<String, Future<void>> _runningUploads = <String, Future<void>>{};
-  final Map<String, UploadTask> _activeUploadTasks = <String, UploadTask>{};
+  final Map<String, Future<void>> _runningTransfers = <String, Future<void>>{};
+  final Map<String, Task> _activeTransferTasks = <String, Task>{};
   final Set<String> _cancelRequestedBatchIds = <String>{};
 
   @override
   Future<void> enqueue(String batchId) async {
-    if (_runningUploads.containsKey(batchId)) {
+    if (_runningTransfers.containsKey(batchId)) {
       return;
     }
 
     final context = await _remoteContextResolver.tryResolve();
     if (context == null) {
       throw const TransferEngineException(
-        'Firebase must be configured before uploads can start.',
+        'Firebase must be configured before transfers can start.',
       );
     }
 
@@ -52,45 +60,54 @@ class FirebaseStorageTransferEngine implements TransferEngine {
       throw const TransferEngineException('Transfer batch not found.');
     }
 
-    if (batch.status == TransferStatus.completed ||
-        batch.status == TransferStatus.pendingRecipient) {
+    _cancelRequestedBatchIds.remove(batchId);
+
+    if (batch.direction == TransferDirection.outgoing) {
+      if (batch.status == TransferStatus.completed ||
+          batch.status == TransferStatus.pendingRecipient) {
+        return;
+      }
+
+      _validateStartableOutgoingBatch(batch);
+      final preparedBatch = _prepareBatchForUpload(batch);
+      final uploadFuture = _runUpload(
+        batchId: batchId,
+        context: context,
+        batch: preparedBatch,
+      );
+      _trackRunningTransfer(batchId, uploadFuture);
       return;
     }
 
-    _validateStartableBatch(batch);
-    final preparedBatch = _prepareBatchForUpload(batch);
-    _cancelRequestedBatchIds.remove(batchId);
+    if (_allFilesSavedLocally(batch)) {
+      return;
+    }
 
-    final uploadFuture = _runUpload(
+    _validateStartableIncomingBatch(batch);
+    final preparedBatch = _prepareBatchForDownload(batch);
+    final downloadFuture = _runDownload(
       batchId: batchId,
       context: context,
       batch: preparedBatch,
     );
-    _runningUploads[batchId] = uploadFuture;
-    unawaited(
-      uploadFuture.whenComplete(() {
-        _runningUploads.remove(batchId);
-        _activeUploadTasks.remove(batchId);
-        _cancelRequestedBatchIds.remove(batchId);
-      }),
-    );
+    _trackRunningTransfer(batchId, downloadFuture);
   }
 
   @override
   Future<void> pause(String batchId) async {
-    final uploadTask = _activeUploadTasks[batchId];
-    if (uploadTask == null) {
+    final transferTask = _activeTransferTasks[batchId];
+    if (transferTask == null) {
       return;
     }
 
-    await uploadTask.pause();
+    await transferTask.pause();
   }
 
   @override
   Future<void> resume(String batchId) async {
-    final uploadTask = _activeUploadTasks[batchId];
-    if (uploadTask != null) {
-      await uploadTask.resume();
+    final transferTask = _activeTransferTasks[batchId];
+    if (transferTask != null) {
+      await transferTask.resume();
       return;
     }
 
@@ -100,15 +117,40 @@ class FirebaseStorageTransferEngine implements TransferEngine {
   @override
   Future<void> cancel(String batchId) async {
     _cancelRequestedBatchIds.add(batchId);
-    final uploadTask = _activeUploadTasks[batchId];
-    if (uploadTask != null) {
-      await uploadTask.cancel();
+    final transferTask = _activeTransferTasks[batchId];
+    if (transferTask != null) {
+      await transferTask.cancel();
       return;
     }
 
-    if (!_runningUploads.containsKey(batchId)) {
-      await _transferRepository.cancelBatch(batchId);
+    if (_runningTransfers.containsKey(batchId)) {
+      return;
     }
+
+    final batch = await _transferRepository.getBatch(batchId);
+    if (batch == null) {
+      _cancelRequestedBatchIds.remove(batchId);
+      return;
+    }
+
+    if (batch.direction == TransferDirection.outgoing) {
+      await _transferRepository.cancelBatch(batchId);
+      _cancelRequestedBatchIds.remove(batchId);
+      return;
+    }
+
+    if (batch.status == TransferStatus.downloading) {
+      final context = await _remoteContextResolver.tryResolve();
+      if (context != null) {
+        await _resetIncomingBatch(
+          batchId: batchId,
+          currentUserUid: context.uid,
+          batch: batch,
+        );
+      }
+    }
+
+    _cancelRequestedBatchIds.remove(batchId);
   }
 
   Future<void> _runUpload({
@@ -119,14 +161,14 @@ class FirebaseStorageTransferEngine implements TransferEngine {
     var activeBatch = batch;
 
     try {
-      await _persistBatch(
+      await _persistRemoteBatch(
         batchId: batchId,
         currentUserUid: context.uid,
         batch: activeBatch,
       );
 
       if (_cancelRequestedBatchIds.contains(batchId)) {
-        await _markCancelled(
+        await _markOutgoingCancelled(
           batchId: batchId,
           currentUserUid: context.uid,
           batch: activeBatch,
@@ -136,9 +178,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
 
       for (var index = 0; index < activeBatch.files.length; index += 1) {
         final file = activeBatch.files[index];
-        if (file.status == TransferFileStatus.completed &&
-            file.storagePath != null &&
-            file.storagePath!.isNotEmpty) {
+        if (_isUploadedFileComplete(file)) {
           continue;
         }
 
@@ -188,7 +228,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
             downloadUrl: null,
           ),
         );
-        await _persistBatch(
+        await _persistRemoteBatch(
           batchId: batchId,
           currentUserUid: context.uid,
           batch: activeBatch,
@@ -206,7 +246,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
                 },
               ),
             );
-        _activeUploadTasks[batchId] = uploadTask;
+        _activeTransferTasks[batchId] = uploadTask;
 
         var lastSyncedAt = DateTime.fromMillisecondsSinceEpoch(0).toUtc();
         var lastSyncedBytes = activeBatch.bytesTransferred;
@@ -243,7 +283,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
               lastSyncedBytes: lastSyncedBytes,
               totalBytes: activeBatch.totalBytes,
             )) {
-              await _persistBatch(
+              await _persistRemoteBatch(
                 batchId: batchId,
                 currentUserUid: context.uid,
                 batch: activeBatch,
@@ -254,7 +294,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
           }
 
           if (_cancelRequestedBatchIds.contains(batchId)) {
-            await _markCancelled(
+            await _markOutgoingCancelled(
               batchId: batchId,
               currentUserUid: context.uid,
               batch: activeBatch,
@@ -275,7 +315,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
               failure: null,
             ),
           );
-          await _persistBatch(
+          await _persistRemoteBatch(
             batchId: batchId,
             currentUserUid: context.uid,
             batch: activeBatch,
@@ -283,7 +323,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
         } on FirebaseException catch (error) {
           if (error.code == 'canceled' ||
               _cancelRequestedBatchIds.contains(batchId)) {
-            await _markCancelled(
+            await _markOutgoingCancelled(
               batchId: batchId,
               currentUserUid: context.uid,
               batch: activeBatch,
@@ -296,11 +336,11 @@ class FirebaseStorageTransferEngine implements TransferEngine {
             currentUserUid: context.uid,
             batch: activeBatch,
             fileIndex: index,
-            failure: _failureFromFirebaseError(file.name, error),
+            failure: _uploadFailureFromFirebaseError(file.name, error),
           );
           return;
         } finally {
-          final _ = _activeUploadTasks.remove(batchId);
+          final _ = _activeTransferTasks.remove(batchId);
         }
       }
 
@@ -318,7 +358,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
         failure: null,
         bytesTransferred: _aggregateTransferredBytes(completedFiles),
       );
-      await _persistBatch(
+      await _persistRemoteBatch(
         batchId: batchId,
         currentUserUid: context.uid,
         batch: finishedBatch,
@@ -339,7 +379,222 @@ class FirebaseStorageTransferEngine implements TransferEngine {
     }
   }
 
-  void _validateStartableBatch(TransferBatch batch) {
+  Future<void> _runDownload({
+    required String batchId,
+    required TransferRemoteContext context,
+    required TransferBatch batch,
+  }) async {
+    var activeBatch = batch;
+
+    try {
+      await _persistRemoteBatch(
+        batchId: batchId,
+        currentUserUid: context.uid,
+        batch: activeBatch,
+      );
+
+      if (_cancelRequestedBatchIds.contains(batchId)) {
+        await _resetIncomingBatch(
+          batchId: batchId,
+          currentUserUid: context.uid,
+          batch: activeBatch,
+        );
+        return;
+      }
+
+      for (var index = 0; index < activeBatch.files.length; index += 1) {
+        final file = activeBatch.files[index];
+        if (_hasLocalCopy(file)) {
+          continue;
+        }
+
+        final reference = _storageReferenceForFile(file);
+        if (reference == null) {
+          await _markFailed(
+            batchId: batchId,
+            currentUserUid: context.uid,
+            batch: activeBatch,
+            fileIndex: index,
+            failure: TransferFailure(
+              code: TransferFailureCode.unknown,
+              message:
+                  'Download details for ${file.name} are not available yet. Try again once the upload finishes.',
+              isRecoverable: true,
+            ),
+          );
+          return;
+        }
+
+        final targetFile = await _receivedTransferFileStore.createTargetFile(
+          batchId: batchId,
+          fileName: file.name,
+        );
+        activeBatch = _replaceFile(
+          activeBatch,
+          index,
+          activeBatch.files[index].copyWith(
+            transferredBytes: 0,
+            status: TransferFileStatus.inProgress,
+            failure: null,
+            localPath: null,
+          ),
+        );
+        await _persistRemoteBatch(
+          batchId: batchId,
+          currentUserUid: context.uid,
+          batch: activeBatch,
+        );
+
+        final downloadTask = reference.writeToFile(targetFile);
+        _activeTransferTasks[batchId] = downloadTask;
+
+        var lastSyncedAt = DateTime.fromMillisecondsSinceEpoch(0).toUtc();
+        var lastSyncedBytes = activeBatch.bytesTransferred;
+
+        try {
+          await for (final snapshot in downloadTask.snapshotEvents) {
+            if (_cancelRequestedBatchIds.contains(batchId)) {
+              await downloadTask.cancel();
+              break;
+            }
+
+            final transferredBytes = _clampTransferredBytes(
+              snapshot.bytesTransferred,
+              activeBatch.files[index].byteCount,
+            );
+            activeBatch = _replaceFile(
+              activeBatch,
+              index,
+              activeBatch.files[index].copyWith(
+                transferredBytes: transferredBytes,
+                status: transferredBytes >= activeBatch.files[index].byteCount
+                    ? TransferFileStatus.completed
+                    : TransferFileStatus.inProgress,
+                failure: null,
+              ),
+            );
+
+            final aggregateBytes = activeBatch.bytesTransferred;
+            final now = DateTime.now().toUtc();
+            if (_shouldSyncProgress(
+              now: now,
+              lastSyncedAt: lastSyncedAt,
+              currentBytes: aggregateBytes,
+              lastSyncedBytes: lastSyncedBytes,
+              totalBytes: activeBatch.totalBytes,
+            )) {
+              await _persistRemoteBatch(
+                batchId: batchId,
+                currentUserUid: context.uid,
+                batch: activeBatch,
+              );
+              lastSyncedAt = now;
+              lastSyncedBytes = aggregateBytes;
+            }
+          }
+
+          if (_cancelRequestedBatchIds.contains(batchId)) {
+            await _receivedTransferFileStore.deleteIfExists(targetFile.path);
+            await _resetIncomingBatch(
+              batchId: batchId,
+              currentUserUid: context.uid,
+              batch: activeBatch,
+            );
+            return;
+          }
+
+          await downloadTask;
+          final completedFile = activeBatch.files[index].copyWith(
+            transferredBytes: activeBatch.files[index].byteCount,
+            status: TransferFileStatus.completed,
+            localPath: targetFile.path,
+            failure: null,
+          );
+          activeBatch = _replaceFile(activeBatch, index, completedFile);
+          await _downloadLocalDataSource.upsertDownloadedFile(
+            batchId: batchId,
+            fileId: completedFile.id,
+            localPath: targetFile.path,
+            savedAt: DateTime.now().toUtc(),
+          );
+          await _persistRemoteBatch(
+            batchId: batchId,
+            currentUserUid: context.uid,
+            batch: activeBatch,
+          );
+        } on FirebaseException catch (error) {
+          await _receivedTransferFileStore.deleteIfExists(targetFile.path);
+          if (error.code == 'canceled' ||
+              _cancelRequestedBatchIds.contains(batchId)) {
+            await _resetIncomingBatch(
+              batchId: batchId,
+              currentUserUid: context.uid,
+              batch: activeBatch,
+            );
+            return;
+          }
+
+          await _markFailed(
+            batchId: batchId,
+            currentUserUid: context.uid,
+            batch: activeBatch,
+            fileIndex: index,
+            failure: _downloadFailureFromFirebaseError(file.name, error),
+          );
+          return;
+        } finally {
+          final _ = _activeTransferTasks.remove(batchId);
+        }
+      }
+
+      final completedFiles = activeBatch.files
+          .map(
+            (file) => file.copyWith(
+              transferredBytes: file.byteCount,
+              status: TransferFileStatus.completed,
+              failure: null,
+            ),
+          )
+          .toList(growable: false);
+      final finishedBatch = activeBatch.copyWith(
+        status: TransferStatus.completed,
+        files: completedFiles,
+        failure: null,
+        bytesTransferred: _aggregateTransferredBytes(completedFiles),
+      );
+      await _persistRemoteBatch(
+        batchId: batchId,
+        currentUserUid: context.uid,
+        batch: finishedBatch,
+      );
+    } on Object catch (error) {
+      await _markFailedSafely(
+        batchId: batchId,
+        currentUserUid: context.uid,
+        batch: activeBatch,
+        failure: TransferFailure(
+          code: TransferFailureCode.unknown,
+          message: error is AppException
+              ? error.message
+              : 'Download failed unexpectedly: $error',
+          isRecoverable: true,
+        ),
+      );
+    }
+  }
+
+  void _trackRunningTransfer(String batchId, Future<void> transferFuture) {
+    _runningTransfers[batchId] = transferFuture;
+    unawaited(
+      transferFuture.whenComplete(() {
+        _runningTransfers.remove(batchId);
+        _activeTransferTasks.remove(batchId);
+        _cancelRequestedBatchIds.remove(batchId);
+      }),
+    );
+  }
+
+  void _validateStartableOutgoingBatch(TransferBatch batch) {
     if (batch.direction != TransferDirection.outgoing) {
       throw const TransferEngineException(
         'Only outgoing transfers can be uploaded from this device.',
@@ -366,11 +621,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
     }
 
     for (final file in batch.files) {
-      final isCompleted =
-          file.status == TransferFileStatus.completed &&
-          file.storagePath != null &&
-          file.storagePath!.isNotEmpty;
-      if (isCompleted) {
+      if (_isUploadedFileComplete(file)) {
         continue;
       }
 
@@ -383,14 +634,51 @@ class FirebaseStorageTransferEngine implements TransferEngine {
     }
   }
 
+  void _validateStartableIncomingBatch(TransferBatch batch) {
+    if (batch.direction != TransferDirection.incoming) {
+      throw const TransferEngineException(
+        'Only incoming transfers can be downloaded from this device.',
+      );
+    }
+
+    if (batch.status == TransferStatus.awaitingAcceptance) {
+      throw const TransferEngineException(
+        'Accept this transfer before trying to download it.',
+      );
+    }
+
+    if (batch.status == TransferStatus.queued ||
+        batch.status == TransferStatus.uploading) {
+      throw const TransferEngineException(
+        'The sender is still uploading this transfer. Try again once it finishes.',
+      );
+    }
+
+    if (batch.status == TransferStatus.rejected ||
+        batch.status == TransferStatus.cancelled ||
+        batch.status == TransferStatus.expired) {
+      throw const TransferEngineException(
+        'This transfer is no longer available for download.',
+      );
+    }
+
+    for (final file in batch.files) {
+      if (_hasLocalCopy(file)) {
+        continue;
+      }
+
+      if (_storageReferenceForFile(file) == null) {
+        throw TransferEngineException(
+          'Download details for ${file.name} are not available yet.',
+        );
+      }
+    }
+  }
+
   TransferBatch _prepareBatchForUpload(TransferBatch batch) {
     final preparedFiles = batch.files
         .map((file) {
-          final keepCompleted =
-              file.status == TransferFileStatus.completed &&
-              file.storagePath != null &&
-              file.storagePath!.isNotEmpty;
-          if (keepCompleted) {
+          if (_isUploadedFileComplete(file)) {
             return file.copyWith(failure: null);
           }
 
@@ -415,12 +703,49 @@ class FirebaseStorageTransferEngine implements TransferEngine {
     );
   }
 
-  Future<void> _persistBatch({
+  TransferBatch _prepareBatchForDownload(TransferBatch batch) {
+    final preparedFiles = batch.files
+        .map((file) {
+          if (_hasLocalCopy(file)) {
+            return file.copyWith(
+              transferredBytes: file.byteCount,
+              status: TransferFileStatus.completed,
+              failure: null,
+            );
+          }
+
+          return file.copyWith(
+            transferredBytes: 0,
+            status: TransferFileStatus.pending,
+            failure: null,
+            localPath: null,
+          );
+        })
+        .toList(growable: false);
+
+    final allCompleted =
+        preparedFiles.isNotEmpty && preparedFiles.every(_hasLocalCopy);
+
+    return batch.copyWith(
+      status: allCompleted
+          ? TransferStatus.completed
+          : TransferStatus.downloading,
+      files: preparedFiles,
+      failure: null,
+      bytesTransferred: _aggregateTransferredBytes(preparedFiles),
+      totalBytes: preparedFiles.fold<int>(
+        0,
+        (total, file) => total + file.byteCount,
+      ),
+    );
+  }
+
+  Future<void> _persistRemoteBatch({
     required String batchId,
     required String currentUserUid,
     required TransferBatch batch,
   }) {
-    return _remoteDataSource.updateOutgoingTransferBatch(
+    return _remoteDataSource.updateTransferBatch(
       batchId: batchId,
       currentUserUid: currentUserUid,
       status: batch.status,
@@ -430,7 +755,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
     );
   }
 
-  Future<void> _markCancelled({
+  Future<void> _markOutgoingCancelled({
     required String batchId,
     required String currentUserUid,
     required TransferBatch batch,
@@ -443,7 +768,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
         )
         .toList(growable: false);
 
-    return _persistBatch(
+    return _persistRemoteBatch(
       batchId: batchId,
       currentUserUid: currentUserUid,
       batch: batch.copyWith(
@@ -451,6 +776,47 @@ class FirebaseStorageTransferEngine implements TransferEngine {
         files: cancelledFiles,
         failure: null,
         bytesTransferred: _aggregateTransferredBytes(cancelledFiles),
+      ),
+    );
+  }
+
+  Future<void> _resetIncomingBatch({
+    required String batchId,
+    required String currentUserUid,
+    required TransferBatch batch,
+  }) {
+    final resetFiles = batch.files
+        .map((file) {
+          if (_hasLocalCopy(file)) {
+            return file.copyWith(
+              transferredBytes: file.byteCount,
+              status: TransferFileStatus.completed,
+              failure: null,
+            );
+          }
+
+          return file.copyWith(
+            transferredBytes: 0,
+            status: TransferFileStatus.pending,
+            failure: null,
+            localPath: null,
+          );
+        })
+        .toList(growable: false);
+
+    final allCompleted =
+        resetFiles.isNotEmpty && resetFiles.every(_hasLocalCopy);
+
+    return _persistRemoteBatch(
+      batchId: batchId,
+      currentUserUid: currentUserUid,
+      batch: batch.copyWith(
+        status: allCompleted
+            ? TransferStatus.completed
+            : TransferStatus.pendingRecipient,
+        files: resetFiles,
+        failure: null,
+        bytesTransferred: _aggregateTransferredBytes(resetFiles),
       ),
     );
   }
@@ -470,11 +836,12 @@ class FirebaseStorageTransferEngine implements TransferEngine {
         batch.files[fileIndex].copyWith(
           status: TransferFileStatus.failed,
           failure: failure,
+          localPath: batch.files[fileIndex].localPath,
         ),
       );
     }
 
-    return _persistBatch(
+    return _persistRemoteBatch(
       batchId: batchId,
       currentUserUid: currentUserUid,
       batch: failedBatch.copyWith(
@@ -501,7 +868,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
         fileIndex: fileIndex,
       );
     } on Object {
-      // If Firestore writes fail we still avoid crashing the upload worker.
+      // If Firestore writes fail we still avoid crashing the transfer worker.
     }
   }
 
@@ -558,11 +925,46 @@ class FirebaseStorageTransferEngine implements TransferEngine {
     return now.difference(lastSyncedAt) >= const Duration(milliseconds: 350);
   }
 
+  bool _isUploadedFileComplete(TransferFile file) {
+    return file.status == TransferFileStatus.completed &&
+        file.storagePath != null &&
+        file.storagePath!.isNotEmpty;
+  }
+
+  bool _hasLocalCopy(TransferFile file) {
+    final localPath = file.localPath;
+    return localPath != null &&
+        localPath.isNotEmpty &&
+        File(localPath).existsSync();
+  }
+
+  bool _allFilesSavedLocally(TransferBatch batch) {
+    return batch.files.isNotEmpty && batch.files.every(_hasLocalCopy);
+  }
+
+  Reference? _storageReferenceForFile(TransferFile file) {
+    final storagePath = file.storagePath;
+    if (storagePath != null && storagePath.isNotEmpty) {
+      return _firebaseStorage.ref(storagePath);
+    }
+
+    final downloadUrl = file.downloadUrl;
+    if (downloadUrl == null || downloadUrl.isEmpty) {
+      return null;
+    }
+
+    try {
+      return _firebaseStorage.refFromURL(downloadUrl);
+    } on Object {
+      return null;
+    }
+  }
+
   String _buildStoragePath(String batchId, TransferFile file) {
     return 'transfers/$batchId/${file.id}';
   }
 
-  TransferFailure _failureFromFirebaseError(
+  TransferFailure _uploadFailureFromFirebaseError(
     String fileName,
     FirebaseException error,
   ) {
@@ -587,6 +989,43 @@ class FirebaseStorageTransferEngine implements TransferEngine {
       _ => TransferFailure(
         code: TransferFailureCode.unknown,
         message: 'Failed to upload $fileName: ${error.message ?? error.code}.',
+        isRecoverable: true,
+      ),
+    };
+  }
+
+  TransferFailure _downloadFailureFromFirebaseError(
+    String fileName,
+    FirebaseException error,
+  ) {
+    return switch (error.code) {
+      'unauthorized' => TransferFailure(
+        code: TransferFailureCode.permissionDenied,
+        message:
+            'Download permission was denied for $fileName. Check Firebase Storage rules and try again.',
+        isRecoverable: false,
+      ),
+      'canceled' => TransferFailure(
+        code: TransferFailureCode.backgroundExecutionInterrupted,
+        message: 'Download was cancelled before $fileName finished saving.',
+        isRecoverable: true,
+      ),
+      'retry-limit-exceeded' || 'network-request-failed' => TransferFailure(
+        code: TransferFailureCode.networkInterrupted,
+        message:
+            'Network interrupted while downloading $fileName. Retry will restart that file cleanly.',
+        isRecoverable: true,
+      ),
+      'object-not-found' => TransferFailure(
+        code: TransferFailureCode.unknown,
+        message:
+            '$fileName is no longer available in storage. Retry after the sender uploads it again.',
+        isRecoverable: false,
+      ),
+      _ => TransferFailure(
+        code: TransferFailureCode.unknown,
+        message:
+            'Failed to download $fileName: ${error.message ?? error.code}.',
         isRecoverable: true,
       ),
     };

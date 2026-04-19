@@ -532,6 +532,8 @@ class _DraftBatchCard extends StatelessWidget {
                 'Waiting for recipient acceptance',
               TransferStatus.pendingRecipient =>
                 'Upload complete. Recipient download is next',
+              TransferStatus.completed =>
+                'Recipient downloaded and saved this batch',
               _ => null,
             },
           ),

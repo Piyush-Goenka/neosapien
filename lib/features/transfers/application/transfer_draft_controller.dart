@@ -3,13 +3,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neo_sapien/core/errors/app_exception.dart';
 import 'package:neo_sapien/core/providers/app_environment_provider.dart';
 import 'package:neo_sapien/core/providers/firebase_providers.dart';
+import 'package:neo_sapien/core/providers/secure_storage_provider.dart';
 import 'package:neo_sapien/features/identity/application/identity_controller.dart';
 import 'package:neo_sapien/features/recipients/domain/entities/recipient.dart';
 import 'package:neo_sapien/features/transfers/data/data_sources/firestore_transfer_remote_data_source.dart';
+import 'package:neo_sapien/features/transfers/data/data_sources/transfer_download_local_data_source.dart';
 import 'package:neo_sapien/features/transfers/data/repositories/hybrid_transfer_repository.dart';
 import 'package:neo_sapien/features/transfers/data/repositories/in_memory_transfer_repository.dart';
 import 'package:neo_sapien/features/transfers/data/services/file_picker_transfer_file_selector.dart';
 import 'package:neo_sapien/features/transfers/data/services/firebase_storage_transfer_engine.dart';
+import 'package:neo_sapien/features/transfers/data/services/received_transfer_file_store.dart';
 import 'package:neo_sapien/features/transfers/data/services/transfer_remote_context_resolver.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/network_policy.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_batch.dart';
@@ -24,6 +27,7 @@ final transferRepositoryProvider = Provider<TransferRepository>((ref) {
   final repository = HybridTransferRepository(
     localRepository: InMemoryTransferRepository(),
     remoteDataSource: ref.watch(firestoreTransferRemoteDataSourceProvider),
+    downloadLocalDataSource: ref.watch(transferDownloadLocalDataSourceProvider),
     remoteContextResolver: ref.watch(transferRemoteContextResolverProvider),
     transferTtl: environment.transferTtl,
   );
@@ -35,6 +39,11 @@ final firestoreTransferRemoteDataSourceProvider =
     Provider<FirestoreTransferRemoteDataSource>((ref) {
       final firestore = ref.watch(firebaseFirestoreProvider);
       return FirestoreTransferRemoteDataSource(firestore);
+    });
+
+final transferDownloadLocalDataSourceProvider =
+    Provider<TransferDownloadLocalDataSource>((ref) {
+      return TransferDownloadLocalDataSource(ref.watch(secureStorageProvider));
     });
 
 final transferRemoteContextResolverProvider =
@@ -51,8 +60,16 @@ final transferEngineProvider = Provider<TransferEngine>((ref) {
     firebaseStorage: ref.watch(firebaseStorageProvider),
     remoteDataSource: ref.watch(firestoreTransferRemoteDataSourceProvider),
     transferRepository: ref.watch(transferRepositoryProvider),
+    downloadLocalDataSource: ref.watch(transferDownloadLocalDataSourceProvider),
+    receivedTransferFileStore: ref.watch(receivedTransferFileStoreProvider),
     remoteContextResolver: ref.watch(transferRemoteContextResolverProvider),
   );
+});
+
+final receivedTransferFileStoreProvider = Provider<ReceivedTransferFileStore>((
+  ref,
+) {
+  return ReceivedTransferFileStore();
 });
 
 final transferFileSelectorProvider = Provider<TransferFileSelector>((ref) {
