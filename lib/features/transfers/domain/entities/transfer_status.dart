@@ -1,0 +1,15 @@
+enum TransferStatus {
+  draft,
+  validating,
+  queued,
+  uploading,
+  pendingRecipient,
+  awaitingAcceptance,
+  downloading,
+  completed,
+  failed,
+  cancelled,
+  expired,
+  rejected,
+  corrupted,
+}
