@@ -1,9 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:neo_sapien/core/connectivity/connectivity_gateway.dart';
 import 'package:neo_sapien/core/errors/app_exception.dart';
+import 'package:neo_sapien/core/providers/connectivity_providers.dart';
 import 'package:neo_sapien/core/providers/storage_providers.dart';
 import 'package:neo_sapien/core/utils/byte_count_formatter.dart';
 import 'package:neo_sapien/features/transfers/application/transfer_draft_controller.dart';
+import 'package:neo_sapien/features/transfers/domain/entities/network_policy.dart';
+import 'package:neo_sapien/features/transfers/domain/entities/transfer_batch.dart';
 
 final transferBatchActionControllerProvider =
     NotifierProvider<TransferBatchActionController, TransferBatchActionState>(
@@ -58,17 +62,57 @@ class TransferBatchActionController extends Notifier<TransferBatchActionState> {
   }
 
   Future<void> startUpload(String batchId) {
-    return _run(
-      batchId,
-      () => ref.read(transferEngineProvider).enqueue(batchId),
-    );
+    return _run(batchId, () async {
+      final batch = await ref
+          .read(transferRepositoryProvider)
+          .getBatch(batchId);
+      await _ensureNetworkAllowsTransfer(batch);
+      await ref.read(transferEngineProvider).enqueue(batchId);
+    });
   }
 
   Future<void> download(String batchId) {
     return _run(batchId, () async {
       await _ensureFreeStorageForBatch(batchId);
+      final batch = await ref
+          .read(transferRepositoryProvider)
+          .getBatch(batchId);
+      await _ensureNetworkAllowsTransfer(batch);
       await ref.read(transferEngineProvider).enqueue(batchId);
     });
+  }
+
+  Future<void> _ensureNetworkAllowsTransfer(TransferBatch? batch) async {
+    final reachability = await ref
+        .read(connectivityGatewayProvider)
+        .current();
+
+    if (reachability == NetworkReachability.offline) {
+      throw const TransferRepositoryException(
+        'No network connection. Reconnect and try again.',
+      );
+    }
+
+    if (reachability != NetworkReachability.metered) {
+      return;
+    }
+
+    // Metered (cellular). Policy gates whether we proceed.
+    final policy = batch?.networkPolicy ?? NetworkPolicy.confirmOnMetered;
+    switch (policy) {
+      case NetworkPolicy.allowMetered:
+        return;
+      case NetworkPolicy.wifiOnly:
+        throw const TransferRepositoryException(
+          'This transfer is set to Wi-Fi only. Connect to Wi-Fi and retry, '
+          'or switch the network policy on the sender.',
+        );
+      case NetworkPolicy.confirmOnMetered:
+        throw const TransferRepositoryException(
+          'You are on a metered (cellular) connection. Switch to Wi-Fi or '
+          'change the network policy to "Allow Metered" before retrying.',
+        );
+    }
   }
 
   Future<void> _ensureFreeStorageForBatch(String batchId) async {

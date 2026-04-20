@@ -197,6 +197,93 @@ class FirestoreTransferRemoteDataSource {
     }
   }
 
+  /// Finds stale in-flight batches (uploading/downloading) for the given user
+/// where the current user was the last writer and the last update is older
+/// than [staleThreshold], and marks them as failed + recoverable.
+///
+/// Called once on app boot to recover from process death / crash scenarios
+/// where a transfer was mid-flight when the app was killed.
+  Future<int> reconcileStaleBatchesForUser({
+    required String currentUserUid,
+    Duration staleThreshold = const Duration(minutes: 2),
+  }) async {
+    final now = DateTime.now().toUtc();
+    final threshold = now.subtract(staleThreshold);
+
+    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> fetch(
+      String field,
+    ) async {
+      try {
+        final result = await _transfersCollection
+            .where(field, isEqualTo: currentUserUid)
+            .get();
+        return result.docs;
+      } on FirebaseException {
+        return const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      }
+    }
+
+    final outgoingDocs = await fetch('senderUid');
+    final incomingDocs = await fetch('recipientUid');
+
+    final seenIds = <String>{};
+    var reconciledCount = 0;
+
+    Future<void> reconcileDoc(
+      QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    ) async {
+      if (!seenIds.add(doc.id)) {
+        return;
+      }
+
+      final data = doc.data();
+      final status = data['status'] as String?;
+      if (status != TransferStatus.uploading.name &&
+          status != TransferStatus.downloading.name) {
+        return;
+      }
+
+      final lastUpdatedBy = data['lastUpdatedBy'] as String?;
+      if (lastUpdatedBy != currentUserUid) {
+        return;
+      }
+
+      final updatedAtRaw = data['updatedAt'];
+      if (updatedAtRaw is! Timestamp) {
+        return;
+      }
+      if (updatedAtRaw.toDate().toUtc().isAfter(threshold)) {
+        return;
+      }
+
+      try {
+        await doc.reference.update(<String, Object?>{
+          'status': TransferStatus.failed.name,
+          'failure': <String, Object?>{
+            'code': TransferFailureCode.backgroundExecutionInterrupted.name,
+            'message':
+                'Transfer was interrupted before finishing. Retry to resume.',
+            'isRecoverable': true,
+          },
+          'updatedAt': Timestamp.fromDate(now),
+          'lastUpdatedBy': currentUserUid,
+        });
+        reconciledCount += 1;
+      } on FirebaseException {
+        // Best-effort; swallow so we don't block app boot.
+      }
+    }
+
+    for (final doc in outgoingDocs) {
+      await reconcileDoc(doc);
+    }
+    for (final doc in incomingDocs) {
+      await reconcileDoc(doc);
+    }
+
+    return reconciledCount;
+  }
+
   Future<void> cancelBatch({
     required String batchId,
     required String currentUserUid,

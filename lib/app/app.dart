@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neo_sapien/app/router/app_router.dart';
 import 'package:neo_sapien/app/theme/app_theme.dart';
+import 'package:neo_sapien/features/transfers/application/transfer_draft_controller.dart';
 
 class NeoSapienApp extends ConsumerWidget {
   const NeoSapienApp({super.key});
@@ -9,6 +10,9 @@ class NeoSapienApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(appRouterProvider);
+
+    // Fire the one-shot process-death reconciliation as a side effect.
+    ref.watch(transferRecoveryBootProvider);
 
     return MaterialApp.router(
       title: 'NeoSapien',

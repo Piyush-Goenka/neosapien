@@ -14,6 +14,7 @@ import 'package:neo_sapien/features/transfers/data/services/file_picker_transfer
 import 'package:neo_sapien/features/transfers/data/services/firebase_storage_transfer_engine.dart';
 import 'package:neo_sapien/features/transfers/data/services/received_transfer_file_store.dart';
 import 'package:neo_sapien/features/transfers/data/services/transfer_integrity_service.dart';
+import 'package:neo_sapien/features/transfers/data/services/transfer_recovery_service.dart';
 import 'package:neo_sapien/features/transfers/data/services/transfer_remote_context_resolver.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/network_policy.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_batch.dart';
@@ -78,6 +79,23 @@ final transferIntegrityServiceProvider = Provider<TransferIntegrityService>((
   ref,
 ) {
   return const TransferIntegrityService();
+});
+
+final transferRecoveryServiceProvider = Provider<TransferRecoveryService>((
+  ref,
+) {
+  return TransferRecoveryService(
+    remoteDataSource: ref.watch(firestoreTransferRemoteDataSourceProvider),
+    contextResolver: ref.watch(transferRemoteContextResolverProvider),
+  );
+});
+
+/// Fires once on app boot (after identity is provisioned) to reconcile any
+/// batches that were mid-flight when the process died.
+final transferRecoveryBootProvider = FutureProvider<int>((ref) async {
+  // Wait until identity is available (which implies auth + Firebase ready).
+  await ref.watch(currentIdentityProvider.future);
+  return ref.read(transferRecoveryServiceProvider).reconcileOnBoot();
 });
 
 final transferFileSelectorProvider = Provider<TransferFileSelector>((ref) {
