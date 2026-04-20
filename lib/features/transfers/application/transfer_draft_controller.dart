@@ -13,6 +13,7 @@ import 'package:neo_sapien/features/transfers/data/repositories/in_memory_transf
 import 'package:neo_sapien/features/transfers/data/services/file_picker_transfer_file_selector.dart';
 import 'package:neo_sapien/features/transfers/data/services/firebase_storage_transfer_engine.dart';
 import 'package:neo_sapien/features/transfers/data/services/received_transfer_file_store.dart';
+import 'package:neo_sapien/features/transfers/data/services/transfer_integrity_service.dart';
 import 'package:neo_sapien/features/transfers/data/services/transfer_remote_context_resolver.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/network_policy.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_batch.dart';
@@ -63,6 +64,7 @@ final transferEngineProvider = Provider<TransferEngine>((ref) {
     downloadLocalDataSource: ref.watch(transferDownloadLocalDataSourceProvider),
     receivedTransferFileStore: ref.watch(receivedTransferFileStoreProvider),
     remoteContextResolver: ref.watch(transferRemoteContextResolverProvider),
+    integrityService: ref.watch(transferIntegrityServiceProvider),
   );
 });
 
@@ -70,6 +72,12 @@ final receivedTransferFileStoreProvider = Provider<ReceivedTransferFileStore>((
   ref,
 ) {
   return ReceivedTransferFileStore();
+});
+
+final transferIntegrityServiceProvider = Provider<TransferIntegrityService>((
+  ref,
+) {
+  return const TransferIntegrityService();
 });
 
 final transferFileSelectorProvider = Provider<TransferFileSelector>((ref) {

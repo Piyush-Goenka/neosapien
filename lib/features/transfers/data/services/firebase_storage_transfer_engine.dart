@@ -6,6 +6,7 @@ import 'package:neo_sapien/core/errors/app_exception.dart';
 import 'package:neo_sapien/features/transfers/data/data_sources/firestore_transfer_remote_data_source.dart';
 import 'package:neo_sapien/features/transfers/data/data_sources/transfer_download_local_data_source.dart';
 import 'package:neo_sapien/features/transfers/data/services/received_transfer_file_store.dart';
+import 'package:neo_sapien/features/transfers/data/services/transfer_integrity_service.dart';
 import 'package:neo_sapien/features/transfers/data/services/transfer_remote_context_resolver.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_batch.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_direction.dart';
@@ -25,12 +26,14 @@ class FirebaseStorageTransferEngine implements TransferEngine {
     required TransferDownloadLocalDataSource downloadLocalDataSource,
     required ReceivedTransferFileStore receivedTransferFileStore,
     required TransferRemoteContextResolver remoteContextResolver,
+    required TransferIntegrityService integrityService,
   }) : _firebaseStorage = firebaseStorage,
        _remoteDataSource = remoteDataSource,
        _transferRepository = transferRepository,
        _downloadLocalDataSource = downloadLocalDataSource,
        _receivedTransferFileStore = receivedTransferFileStore,
-       _remoteContextResolver = remoteContextResolver;
+       _remoteContextResolver = remoteContextResolver,
+       _integrityService = integrityService;
 
   final FirebaseStorage _firebaseStorage;
   final FirestoreTransferRemoteDataSource _remoteDataSource;
@@ -38,6 +41,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
   final TransferDownloadLocalDataSource _downloadLocalDataSource;
   final ReceivedTransferFileStore _receivedTransferFileStore;
   final TransferRemoteContextResolver _remoteContextResolver;
+  final TransferIntegrityService _integrityService;
   final Map<String, Future<void>> _runningTransfers = <String, Future<void>>{};
   final Map<String, Task> _activeTransferTasks = <String, Task>{};
   final Set<String> _cancelRequestedBatchIds = <String>{};
@@ -184,7 +188,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
 
         final localPath = file.localPath;
         if (localPath == null || localPath.isEmpty) {
-          await _markFailed(
+          activeBatch = await _markFileFailedContinuing(
             batchId: batchId,
             currentUserUid: context.uid,
             batch: activeBatch,
@@ -196,12 +200,12 @@ class FirebaseStorageTransferEngine implements TransferEngine {
               isRecoverable: true,
             ),
           );
-          return;
+          continue;
         }
 
         final localFile = File(localPath);
         if (!localFile.existsSync()) {
-          await _markFailed(
+          activeBatch = await _markFileFailedContinuing(
             batchId: batchId,
             currentUserUid: context.uid,
             batch: activeBatch,
@@ -213,17 +217,28 @@ class FirebaseStorageTransferEngine implements TransferEngine {
               isRecoverable: true,
             ),
           );
-          return;
+          continue;
         }
 
         final storagePath =
             file.storagePath ?? _buildStoragePath(batchId, file);
+
+        String? checksumSha256 = file.checksumSha256;
+        if (checksumSha256 == null || checksumSha256.isEmpty) {
+          try {
+            checksumSha256 = await _integrityService.computeSha256(localFile);
+          } on Object {
+            checksumSha256 = null;
+          }
+        }
+
         activeBatch = _replaceFile(
           activeBatch,
           index,
           activeBatch.files[index].copyWith(
             status: TransferFileStatus.inProgress,
             storagePath: storagePath,
+            checksumSha256: checksumSha256,
             failure: null,
             downloadUrl: null,
           ),
@@ -331,37 +346,24 @@ class FirebaseStorageTransferEngine implements TransferEngine {
             return;
           }
 
-          await _markFailed(
+          activeBatch = await _markFileFailedContinuing(
             batchId: batchId,
             currentUserUid: context.uid,
             batch: activeBatch,
             fileIndex: index,
             failure: _uploadFailureFromFirebaseError(file.name, error),
           );
-          return;
+          continue;
         } finally {
           final _ = _activeTransferTasks.remove(batchId);
         }
       }
 
-      final completedFiles = activeBatch.files
-          .map(
-            (file) => file.copyWith(
-              status: TransferFileStatus.completed,
-              failure: null,
-            ),
-          )
-          .toList(growable: false);
-      final finishedBatch = activeBatch.copyWith(
-        status: TransferStatus.pendingRecipient,
-        files: completedFiles,
-        failure: null,
-        bytesTransferred: _aggregateTransferredBytes(completedFiles),
-      );
+      final finalizedBatch = _finalizeOutgoingBatch(activeBatch);
       await _persistRemoteBatch(
         batchId: batchId,
         currentUserUid: context.uid,
-        batch: finishedBatch,
+        batch: finalizedBatch,
       );
     } on Object catch (error) {
       await _markFailedSafely(
@@ -408,9 +410,13 @@ class FirebaseStorageTransferEngine implements TransferEngine {
           continue;
         }
 
+        if (file.status == TransferFileStatus.failed && file.storagePath == null) {
+          continue;
+        }
+
         final reference = _storageReferenceForFile(file);
         if (reference == null) {
-          await _markFailed(
+          activeBatch = await _markFileFailedContinuing(
             batchId: batchId,
             currentUserUid: context.uid,
             batch: activeBatch,
@@ -422,7 +428,7 @@ class FirebaseStorageTransferEngine implements TransferEngine {
               isRecoverable: true,
             ),
           );
-          return;
+          continue;
         }
 
         final targetFile = await _receivedTransferFileStore.createTargetFile(
@@ -504,6 +510,34 @@ class FirebaseStorageTransferEngine implements TransferEngine {
           }
 
           await downloadTask;
+
+          final expectedChecksum = activeBatch.files[index].checksumSha256;
+          if (expectedChecksum != null && expectedChecksum.isNotEmpty) {
+            String? actualChecksum;
+            try {
+              actualChecksum = await _integrityService.computeSha256(targetFile);
+            } on Object {
+              actualChecksum = null;
+            }
+
+            if (actualChecksum == null || actualChecksum != expectedChecksum) {
+              await _receivedTransferFileStore.deleteIfExists(targetFile.path);
+              activeBatch = await _markFileFailedContinuing(
+                batchId: batchId,
+                currentUserUid: context.uid,
+                batch: activeBatch,
+                fileIndex: index,
+                failure: TransferFailure(
+                  code: TransferFailureCode.integrityCheckFailed,
+                  message:
+                      '${file.name} failed integrity verification. Retry to download it again.',
+                  isRecoverable: true,
+                ),
+              );
+              continue;
+            }
+          }
+
           final completedFile = activeBatch.files[index].copyWith(
             transferredBytes: activeBatch.files[index].byteCount,
             status: TransferFileStatus.completed,
@@ -534,38 +568,24 @@ class FirebaseStorageTransferEngine implements TransferEngine {
             return;
           }
 
-          await _markFailed(
+          activeBatch = await _markFileFailedContinuing(
             batchId: batchId,
             currentUserUid: context.uid,
             batch: activeBatch,
             fileIndex: index,
             failure: _downloadFailureFromFirebaseError(file.name, error),
           );
-          return;
+          continue;
         } finally {
           final _ = _activeTransferTasks.remove(batchId);
         }
       }
 
-      final completedFiles = activeBatch.files
-          .map(
-            (file) => file.copyWith(
-              transferredBytes: file.byteCount,
-              status: TransferFileStatus.completed,
-              failure: null,
-            ),
-          )
-          .toList(growable: false);
-      final finishedBatch = activeBatch.copyWith(
-        status: TransferStatus.completed,
-        files: completedFiles,
-        failure: null,
-        bytesTransferred: _aggregateTransferredBytes(completedFiles),
-      );
+      final finalizedBatch = _finalizeIncomingBatch(activeBatch);
       await _persistRemoteBatch(
         batchId: batchId,
         currentUserUid: context.uid,
-        batch: finishedBatch,
+        batch: finalizedBatch,
       );
     } on Object catch (error) {
       await _markFailedSafely(
@@ -849,6 +869,117 @@ class FirebaseStorageTransferEngine implements TransferEngine {
         failure: failure,
         bytesTransferred: _aggregateTransferredBytes(failedBatch.files),
       ),
+    );
+  }
+
+  Future<TransferBatch> _markFileFailedContinuing({
+    required String batchId,
+    required String currentUserUid,
+    required TransferBatch batch,
+    required int fileIndex,
+    required TransferFailure failure,
+  }) async {
+    final updatedBatch = _replaceFile(
+      batch,
+      fileIndex,
+      batch.files[fileIndex].copyWith(
+        status: TransferFileStatus.failed,
+        failure: failure,
+      ),
+    );
+    await _persistRemoteBatch(
+      batchId: batchId,
+      currentUserUid: currentUserUid,
+      batch: updatedBatch,
+    );
+    return updatedBatch;
+  }
+
+  TransferBatch _finalizeOutgoingBatch(TransferBatch batch) {
+    final total = batch.files.length;
+    final completed = batch.files
+        .where((file) => file.status == TransferFileStatus.completed)
+        .length;
+    final failed = batch.files
+        .where((file) => file.status == TransferFileStatus.failed)
+        .length;
+
+    if (completed == total) {
+      return batch.copyWith(
+        status: TransferStatus.pendingRecipient,
+        failure: null,
+        bytesTransferred: _aggregateTransferredBytes(batch.files),
+      );
+    }
+
+    if (completed == 0) {
+      return batch.copyWith(
+        status: TransferStatus.failed,
+        failure: TransferFailure(
+          code: TransferFailureCode.networkInterrupted,
+          message:
+              'All $total file(s) failed to upload. Retry to attempt them again.',
+          isRecoverable: true,
+        ),
+        bytesTransferred: _aggregateTransferredBytes(batch.files),
+      );
+    }
+
+    // Partial success: recipient can download the files that uploaded; sender can
+    // retry the remainder. Keep batch open for the recipient with a partial-note.
+    return batch.copyWith(
+      status: TransferStatus.pendingRecipient,
+      failure: TransferFailure(
+        code: TransferFailureCode.unknown,
+        message:
+            '$completed of $total file(s) uploaded; $failed still to retry.',
+        isRecoverable: true,
+      ),
+      bytesTransferred: _aggregateTransferredBytes(batch.files),
+    );
+  }
+
+  TransferBatch _finalizeIncomingBatch(TransferBatch batch) {
+    final total = batch.files.length;
+    final completed = batch.files
+        .where((file) => file.status == TransferFileStatus.completed)
+        .length;
+    final failed = batch.files
+        .where((file) => file.status == TransferFileStatus.failed)
+        .length;
+
+    if (completed == total) {
+      return batch.copyWith(
+        status: TransferStatus.completed,
+        failure: null,
+        bytesTransferred: _aggregateTransferredBytes(batch.files),
+      );
+    }
+
+    if (completed == 0) {
+      return batch.copyWith(
+        status: TransferStatus.failed,
+        failure: TransferFailure(
+          code: TransferFailureCode.networkInterrupted,
+          message:
+              'All $total file(s) failed to download. Retry to try again.',
+          isRecoverable: true,
+        ),
+        bytesTransferred: _aggregateTransferredBytes(batch.files),
+      );
+    }
+
+    // Partial success: some files saved locally, some need retry. Keep status as
+    // completed so the user can see what they have; failure note drives retry.
+    return batch.copyWith(
+      status: TransferStatus.completed,
+      failure: TransferFailure(
+        code: TransferFailureCode.unknown,
+        message:
+            '$completed of $total file(s) saved; $failed still to retry.',
+        isRecoverable: true,
+      ),
+      bytesTransferred: _aggregateTransferredBytes(batch.files),
     );
   }
 

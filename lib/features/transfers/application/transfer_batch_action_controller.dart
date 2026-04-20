@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neo_sapien/core/errors/app_exception.dart';
+import 'package:neo_sapien/core/providers/storage_providers.dart';
+import 'package:neo_sapien/core/utils/byte_count_formatter.dart';
 import 'package:neo_sapien/features/transfers/application/transfer_draft_controller.dart';
 
 final transferBatchActionControllerProvider =
@@ -42,10 +44,10 @@ class TransferBatchActionController extends Notifier<TransferBatchActionState> {
   }
 
   Future<void> accept(String batchId) {
-    return _run(
-      batchId,
-      () => ref.read(transferRepositoryProvider).acceptBatch(batchId),
-    );
+    return _run(batchId, () async {
+      await _ensureFreeStorageForBatch(batchId);
+      await ref.read(transferRepositoryProvider).acceptBatch(batchId);
+    });
   }
 
   Future<void> reject(String batchId) {
@@ -63,10 +65,38 @@ class TransferBatchActionController extends Notifier<TransferBatchActionState> {
   }
 
   Future<void> download(String batchId) {
-    return _run(
-      batchId,
-      () => ref.read(transferEngineProvider).enqueue(batchId),
-    );
+    return _run(batchId, () async {
+      await _ensureFreeStorageForBatch(batchId);
+      await ref.read(transferEngineProvider).enqueue(batchId);
+    });
+  }
+
+  Future<void> _ensureFreeStorageForBatch(String batchId) async {
+    final batch = await ref.read(transferRepositoryProvider).getBatch(batchId);
+    if (batch == null) {
+      return;
+    }
+
+    final required = batch.totalBytes;
+    if (required <= 0) {
+      return;
+    }
+
+    final freeBytes = await ref.read(deviceStorageCheckerProvider).freeBytes();
+    if (freeBytes == null) {
+      return;
+    }
+
+    // Require ~10% headroom so we don't OOM the filesystem while writing
+    // the last file.
+    final minimumRequired = (required * 1.1).toInt();
+    if (freeBytes < minimumRequired) {
+      throw TransferRepositoryException(
+        'Only ${ByteCountFormatter.format(freeBytes)} free on this device, '
+        'but ${ByteCountFormatter.format(minimumRequired)} are required. '
+        'Free up space and try again.',
+      );
+    }
   }
 
   Future<void> cancel(String batchId) {

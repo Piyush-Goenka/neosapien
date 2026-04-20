@@ -38,6 +38,15 @@ android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
 lib/platform/**/*.g.dart
 
+# Firebase Functions
+functions/node_modules/
+functions/lib/
+functions/.env
+functions/.env.*
+firebase-debug.log
+firestore-debug.log
+.firebase/
+
 # Symbolication related
 app.*.symbols
 
