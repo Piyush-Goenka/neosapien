@@ -1,67 +1,91 @@
 # NeoSapien Project Tracker
 
 ## 1. Project Snapshot
-- Deadline: 2026-04-20 08:00 PM
-- Goal: Ship a production-grade cross-device file sharing app that works on a real Android phone and a real iPhone.
-- Platforms: Flutter app with full Android + iPhone parity.
-- Primary bonus: Pigeon-based background transfer on Android and iOS.
-- Secondary bonus: Native picker + native save flow if core is already green.
-- Current phase: M2 Core Transfer Happy Path
+- Deadline: 2026-04-20 08:00 PM (submission day)
+- Goal: Ship a production-grade cross-device file sharing app that works on a real iPhone and a real/emulated Android device over the public internet.
+- Platforms: Flutter app with Android + iOS parity. Devices available: real iPhone + Android emulator on Mac.
+- Primary bonus (weighted heavily in rubric): Pigeon-based background transfer on Android and iOS.
+- Secondary bonus: native picker (SAF / UIDocumentPicker), native save (MediaStore / PHPhotoLibrary), native share sheet.
+- Current phase: M2 → M3 transition — core happy path is code-complete; hardening, closed-app discovery, native bonuses, and submission assets are the remaining work.
 - Overall status: [/]
-- Current focus: Validate the now-complete Firebase Storage upload/download happy path on real devices and harden the remaining failure semantics around it.
-- Next milestone: M2 Core Transfer Happy Path
-- Latest blocker: Firestore/Storage rules, live Firebase/device validation, and stronger mid-transfer recovery are still pending; retry currently restarts the incomplete file cleanly instead of resuming chunk offsets.
+- Current focus: Track A (P0) — partial-failure isolation, SHA-256 integrity, permission handling, low-storage preflight, FCM closed-app discovery via Cloud Function, security rules, and submission package.
+- Next milestone: M3 Resilience And Starred Cases.
+- Latest blocker: Blaze billing must be enabled on the Firebase project before the FCM Cloud Function can be deployed; real-device validation still pending.
 - Demo readiness: [ ] Not ready
 - Submission readiness: [ ] Not ready
 
 ## 1A. Progress Summary
 
 ### Done So Far
-- Flutter project scaffolded at the repo root with both Android and iOS targets.
-- Production app shell created with routing, theme system, bottom navigation, and feature-first folder boundaries.
-- Core architecture foundation added: `app`, `core`, `features`, and `shared` layers with typed contracts instead of template/demo code.
-- Local anonymous identity provisioning implemented with secure storage persistence.
-- Unambiguous short-code format locked and validated in code and tests.
-- Dashboard, send, inbox, and profile screens added as real feature surfaces for the next milestones.
-- Transfer domain contracts added: typed statuses, failure codes, repository interfaces, network policy, and transfer entities.
-- Pigeon contract scaffold added for future Android and iOS native background-transfer integration.
-- Project hygiene added: stricter analyzer rules, `.env.example`, project-specific README baseline, updated `.gitignore`.
-- Firebase runtime bootstrap added through `--dart-define` configuration instead of checked-in secret files.
-- Hybrid identity repository added: local fallback, Firebase anonymous auth, and Firestore-backed short-code reservation when configured.
-- Recipient lookup controller and send-screen lookup UI added with fast invalid-code, missing-code, and self-send failure handling.
-- Profile actions added for copying the short code and retrying registration after Firebase setup changes.
-- Sender-side file picking, preflight validation, and local transfer-draft creation are now implemented with an outgoing draft list in the send flow.
-- Draft validation now enforces file-count, per-file, and total batch-size ceilings without loading file bytes into memory.
-- Transfer draft tests added for selection, draft creation, and large-file / invalid-source guardrails.
-- Firestore-backed transfer metadata creation is now wired through the shared transfer repository when Firebase is configured.
-- The inbox now renders live incoming transfer records and supports accept/reject decisions through the same repository contract.
-- Transfer action tests now cover recipient-side accept handling in addition to sender draft creation.
-- Sender-side upload initiation is now wired through a Firebase Storage transfer engine that updates Firestore with batch and per-file progress.
-- Send and inbox screens now render shared per-file plus aggregate upload progress from the same Firestore-backed transfer state.
-- Recipient-side download/save is now wired through the same Firebase Storage engine, writing received files into app storage, persisting saved paths locally, and surfacing completed history in the inbox.
-- Receiver-side save conflicts now rename deterministically inside the per-batch local save directory instead of clobbering an existing file.
-- Foundation validation completed: `flutter analyze` passes and `flutter test` passes after the Firebase/addressing slice.
+- Flutter app scaffolded with Android + iOS targets and clean feature-first layering (`app`, `core`, `features`, `shared`).
+- Production app shell with GoRouter, Material 3 theme, bottom navigation, Riverpod DI, and disposal-aware providers.
+- Typed domain contracts: identity, recipient value object with unambiguous alphabet, transfer batch/file entities, 15-state status machine, typed failure codes, and network policy enum.
+- Hybrid identity repository: local secure-storage fallback plus Firebase anonymous auth and Firestore-backed short-code reservation with transactional retry.
+- Recipient lookup flow with malformed-code rejection, self-send block, and clear missing-recipient messaging (Firestore-backed).
+- Sender-side file picking via `file_picker`, MIME inference, preflight validation (per-file, per-batch, file-count ceilings) without loading bytes into memory.
+- Firestore-backed transfer control plane: create, watch, accept, reject, cancel with role-scoped transactions in `firestore_transfer_remote_data_source.dart`.
+- Firebase Storage data plane: streaming upload and download with shared per-file + aggregate progress, progress-sync heuristic (256KB delta or 350ms), cancel support, and failure-code mapping.
+- Recipient-side save into per-batch app-documents directory with deterministic filename-conflict rename and persisted saved-path history surviving relaunch.
+- Pigeon contract scaffolded for host/flutter APIs covering start, pause, resume, cancel, query, and progress/state events.
+- Project hygiene: stricter analyzer, `.env.example`, README baseline, updated `.gitignore`, runtime Firebase configuration via `--dart-define` (no secrets in repo).
+- Test suite covers short-code generator, draft validator, recipient lookup controller, draft composer controller, batch action controller, and received-file store.
+- Foundation gates green: `flutter analyze` clean, `flutter test` passing on 2026-04-19.
 
-### Left To Do
-- Supply live Firebase project values, enable the required Firebase services, and validate bootstrap/registration/lookup on Android and iPhone.
-- Add Firestore rules, Storage rules, and any required indexes for `users`, `codes`, and `transfers`.
-- Validate the current direct-to-Firebase-Storage upload path on real devices and decide whether to keep it or swap the data plane to a Cloud Run resumable relay.
-- Validate and harden the new receiver download/save flow on real devices, especially around low storage, permissions, and OEM/background behavior.
-- Harden all starred edge cases: offline recipient semantics, network-drop handling, large-file streaming, multi-file failure isolation, permission denial, and closed-app discovery.
-- Add integrity/hash verification, low-storage checks, dedupe, filename conflict handling, network transition handling, and process-death recovery.
-- Implement bonus/native work only after the core path is stable: Pigeon codegen hookup, Android background transfer, iOS background transfer, and optional native picker/save.
-- Finish the submission assets: tested APK, iPhone run path, final README, video walkthrough, device matrix, and Drive package.
+### Left To Do (to earn the grade)
+- **Firebase ops**: enable Blaze, supply real project values, deploy Firestore + Storage security rules, deploy Cloud Function for FCM push, and capture required composite indexes for the `transfers` queries.
+- **Track A (P0) client hardening**:
+  - Partial failure isolation: one failed file must not kill the batch; per-file retry.
+  - SHA-256 integrity: sender streams hash into transfer doc, receiver verifies on save.
+  - Permission handling: `permission_handler` for notifications, photo-add, Android 13+ media perms; actionable denial UX, no crashes.
+  - Low-storage preflight: refuse accept/download when free < total × 1.1.
+  - Metered-connection enforcement: `connectivity_plus` check against `NetworkPolicy` before upload.
+  - Process-death recovery: stale in-flight batches on boot → fail-cleanly + recoverable retry.
+  - Closed-app discovery: FCM token persistence on `users/{uid}`, local notification on receive, deep link into `/inbox?batch=<id>`.
+  - Firestore + Storage security rules committed in `firebase/` and deployed.
+- **Track B (Bonus)** — only if A is green:
+  - Generate Pigeon bridge; commit generated Dart/Kotlin/Swift files.
+  - Android background transfer via Foreground Service + WorkManager reconciler (Bonus B).
+  - iOS background transfer via `URLSession(configuration: .background)` (Bonus C).
+  - Native pickers: Android `ACTION_OPEN_DOCUMENT`, iOS `UIDocumentPickerViewController` (Bonus D).
+  - Native save: Android `MediaStore.Downloads`, iOS `PHPhotoLibrary` (Bonus E).
+- **Submission**:
+  - README rewrite: architecture ASCII, transport choice rationale, ★ coverage table, known limitations, AI disclosure, device matrix.
+  - Signed debug APK built + tested on clean Android.
+  - iOS build path verified on real iPhone (Xcode run instructions if no Apple Developer enrollment).
+  - Walkthrough video (5–8 min) with both devices visible, code tour, and two failure modes.
+  - Drive folder assembled: APK, source (GitHub link), README, `.env.example`, video.
 
-## 1B. Remaining Work In Order
-- [ ] Configure a live Firebase project for Android and iPhone and prove bootstrap, anonymous auth, short-code reservation, recipient lookup, accepted upload start, and shared progress on devices.
-- [ ] Add Firestore rules, Storage rules, indexes, and a documented local/dev setup for the current control-plane collections.
-- [ ] Harden the current data plane into the final transport choice: either keep direct Firebase Storage with a defensible restart policy or replace it with the planned Cloud Run resumable relay.
-- [ ] Validate and harden recipient-side download/save on physical devices, including low-storage handling, permission edge cases, and reopened-app behavior.
-- [ ] Implement starred delivery/failure behavior: recipient offline handling, network interruption recovery, large-file streaming, multiple-file partial failure isolation, and graceful permission denial.
-- [ ] Add closed-app discovery with notifications/deep links plus honest README coverage of OEM/background limits.
-- [ ] Implement integrity, storage, and recovery hardening: hash verification, low-storage checks, duplicate dedupe, save conflicts, network transitions, airplane mode, and process-death recovery.
-- [ ] Only after the core flow is stable, finish the bonus/native work: generated Pigeon bridge, Android background transfer, iOS background transfer, and optional native picker/save work.
-- [ ] Finish QA, real-device parity evidence, walkthrough video, and final submission packaging.
+## 1B. Remaining Work In Priority Order
+
+Today-only plan, deadline 2026-04-20 20:00.
+
+### Track A — Must ship (P0)
+
+- [ ] **A1. Firebase ops**: enable Blaze on the project; populate `--dart-define` values for Android + iOS; author and deploy `firebase/firestore.rules` + `firebase/storage.rules` + any composite indexes; validate on one device.
+- [ ] **A2. Partial-failure isolation** in [firebase_storage_transfer_engine.dart](lib/features/transfers/data/services/firebase_storage_transfer_engine.dart): replace fail-fast loop with per-file try/catch; finalize batch as `completed` if any succeed, `failed` otherwise; add `retryFile(batchId, fileId)` + "retry only failed files" on `TransferBatchActionController`.
+- [ ] **A3. SHA-256 integrity**: sender hashes while reading, writes `checksumSha256` to transfer file doc; receiver hashes while writing, marks `corrupted` on mismatch and deletes partial file. Use `package:crypto`'s `sha256.bind(stream)`.
+- [ ] **A4. Permission handling**: add `permission_handler`; wrap notification + photos-add + Android 13 media permissions behind a `PermissionGateway` service (domain interface + platform impl). Every denial shows actionable copy with "Open settings" CTA.
+- [ ] **A5. Low-storage preflight**: add `disk_space_plus` (or platform channel via Pigeon) to check free space before `acceptBatch` and before each download; fail with typed `TransferFailureCode.lowStorage`.
+- [ ] **A6. Metered-connection enforcement**: add `connectivity_plus`; if `ConnectivityResult.mobile` and `networkPolicy != allowMetered`, block upload start and show warning.
+- [ ] **A7. Process-death recovery**: on boot, scan batches with status `uploading`/`downloading` and `updatedAt > 60s` ago + `lastUpdatedBy == self`; mark `failed` with `isRecoverable: true`; expose "resume" (restart-from-zero for now, note limitation).
+- [ ] **A8. FCM closed-app discovery** (Cloud Function, Option A):
+  - Persist FCM token on `users/{uid}.fcmTokens[]` on login + token refresh.
+  - Cloud Function `onTransferCreated` (Firestore trigger on `transfers/{id}` create) reads recipient tokens and sends data message with `batchId`.
+  - Dart: local notification via `flutter_local_notifications`; notification tap → deep-link through GoRouter to `/inbox?batch=<id>`.
+- [ ] **A9. Duplicate delivery dedupe**: on save, check `localPath` already recorded in `TransferDownloadLocalDataSource` for the `(batchId, fileId)` key; skip write if present. Also enforce idempotency on Cloud Function via message ID.
+- [ ] **A10. README rewrite**: architecture ASCII, transport justification, full ★ coverage table with file references, known limitations, AI usage disclosure, device test matrix.
+- [ ] **A11. Real-device run + walkthrough video + Drive package**: signed debug APK; iPhone build via Xcode; record 5–8 min video with both screens visible (onboarding, code exchange, transfer, Wi-Fi toggle, bad code, large file, app-kill-reopen, 60s code tour); assemble Drive folder.
+
+### Track B — Bonus (only if A fully green)
+
+Order chosen for highest rubric-per-hour given rubric weighting and device availability.
+
+- [ ] **B1. Generate Pigeon bridge**: `dart run pigeon --input pigeons/native_transfer_bridge.dart`; commit generated files.
+- [ ] **B2. Bonus B — Android background transfer**: Kotlin foreground service + WorkManager; Android Firebase Storage SDK (already supports app-death resume via `UploadTask#pause()` + `StorageReference#getActiveUploadTasks`) for the actual bytes; Pigeon `NativeTransferEngine` Dart adapter; override `transferEngineProvider` on Android via `defaultTargetPlatform`.
+- [ ] **B3. Bonus C — iOS background transfer**: Swift `URLSession(configuration: .background)` + `URLSessionUploadTask` against signed Firebase Storage URL; reconcile via `application(_:handleEventsForBackgroundURLSession:)`; same Pigeon contract.
+- [ ] **B4. Bonus D — native picker**: Kotlin `ACTION_OPEN_DOCUMENT` + Swift `UIDocumentPickerViewController` behind `TransferFileSelector` interface; keep `file_picker` as fallback via Strategy pattern.
+- [ ] **B5. Bonus E — save to gallery**: Kotlin `MediaStore.Downloads` (API 29+) + Swift `PHPhotoLibrary.shared().performChanges`; uses permissions already wired in A4.
+- [-] Bonus F (Nearby fallback) — explicitly deferred.
 
 ## 2. Status Legend
 - [ ] Not started
@@ -87,361 +111,318 @@
   - Done when: Setup, architecture, tradeoffs, handled/unhandled cases, AI usage, and failure demos are fully documented.
   - Evidence:
 
+## 3A. Architectural Principles (industry-standard patterns applied)
+
+These are already in the codebase or baked into the plan — calling them out so reviewers see the rationale.
+
+- **Clean / Hexagonal layering** per feature: `domain` (entities, value objects, repository interfaces, services) → `data` (data sources, repository impls) → `application` (controllers, providers) → `presentation` (screens, widgets). No inward dependencies violated.
+- **Repository pattern** with data-source split: Firestore/Storage/SecureStorage calls live behind data-source classes; repositories orchestrate; controllers depend only on domain interfaces.
+- **Composite / hybrid repository** (fallback strategy): `HybridIdentityRepository` and `HybridTransferRepository` degrade to local-only when Firebase is unreachable.
+- **Strategy pattern** for transport: `TransferEngine` interface with `FirebaseStorageTransferEngine` today and `NativeBackgroundTransferEngine` (Pigeon-backed) for Android/iOS when B2/B3 ship. Selected by Riverpod override per platform.
+- **State machine** via `TransferStatus` enum with explicit 15 states; no stringly-typed statuses.
+- **Value objects** for `RecipientCode`, `UserIdentity`, planned `FileChecksum` — invariants enforced by construction.
+- **Typed failures**: sealed `AppException` hierarchy + `TransferFailureCode` enum + `isRecoverable` flag. UI dispatches on failure code, not on string matching.
+- **Observer via streams**: Firestore `.snapshots()` exposed as Riverpod `StreamProvider`; UI reacts without refresh.
+- **Dependency injection via Riverpod**: explicit providers, scoped disposal, testable via `ProviderContainer(overrides: ...)`.
+- **Platform-channel isolation via Pigeon**: typed contract on both sides, no manual `MethodChannel` strings, code-generated Dart/Kotlin/Swift bindings.
+- **Idempotency**: `(batchId, fileId)` as natural dedupe key on receiver; FCM message ID dedupe on Cloud Function trigger.
+
 ## 4. Rubric Coverage
 
 ### 4.1 Core Requirements
 - [x] Anonymous onboarding with local identity provisioning
-  - Done when: First launch provisions identity without email, password, or phone number.
-  - Evidence: `LocalIdentityRepository` + `CurrentIdentityController` provision and persist a local identity via secure storage; surfaced in dashboard/profile and covered by passing widget and unit tests on 2026-04-19.
+  - Evidence: `LocalIdentityRepository` + `CurrentIdentityController` provision and persist a local identity via secure storage; surfaced in dashboard/profile; widget and unit tests passing.
 - [/] Short-code identity generation and registration
-  - Done when: User receives a stable human-friendly code and it resolves correctly from another device.
-  - Evidence: `HybridIdentityRepository` now attempts Firestore-backed registration with collision retries and persists the reserved code locally; still pending validation against a real Firebase project.
+  - Evidence: `HybridIdentityRepository` uses Firestore transactional reservation with up to 24 random retries; persists locally; pending live-project validation (A1).
 - [/] Send one or more media files to a short code
-  - Done when: Images, video, audio, documents, and arbitrary files can be sent in a single batch.
-  - Evidence: sender-side file picking, MIME inference, preflight validation, transfer creation, recipient accept/reject, sender upload start, recipient download/save, and Firebase Storage-backed shared transfer progress now flow through `TransferDraftComposerController`, `HybridTransferRepository`, `FirebaseStorageTransferEngine`, the local download-state data source, and the shared Firestore transfer feed. Live device validation is still pending.
+  - Evidence: end-to-end draft → upload → accept → download → save flow implemented through `TransferDraftComposerController`, `HybridTransferRepository`, `FirebaseStorageTransferEngine`. Live device validation pending (A11).
 - [/] Works across distance / internet relay
-  - Done when: Transfers do not depend on proximity, LAN, or localhost.
-  - Evidence: identity, recipient lookup, transfer creation, inbox discovery, sender-side uploads, and recipient-side downloads now run through Firebase Auth, Firestore, and Firebase Storage over the internet when configured; the final resumable relay decision and device validation are still pending.
+  - Evidence: identity, lookup, control plane, and data plane all traverse Firebase (Auth + Firestore + Storage) over TLS. Pending live config + device verification (A1, A11).
 - [ ] Real-device proof path
-  - Done when: At least one Android phone and one iPhone complete end-to-end tests.
   - Evidence:
 - [/] Real-time progress and final success/failure states
-  - Done when: Sender and recipient both see state transitions without manual refresh.
-  - Evidence: outgoing uploads and incoming downloads now write aggregate and per-file progress into Firestore so both the sender queue and recipient inbox update live from the same transfer documents, while local saved paths are merged back into completed receiver history. Real-device verification is still pending.
+  - Evidence: outgoing uploads and incoming downloads write aggregate + per-file progress to Firestore; both send and inbox screens render from the same `TransferProgressSummary` widget. Pending device verification.
 
 ### 4.2 Starred Edge Cases
 - [/] Short-code collisions handled
-  - Done when: Reservation is guaranteed unique or collision retries are transparent.
-  - Evidence: `IdentityRegistryRemoteDataSource.reserveIdentity` retries candidate codes and uses Firestore transactions to avoid duplicate claims; still pending live-project verification.
+  - Evidence: `IdentityRegistryRemoteDataSource.reserveIdentity` uses Firestore transactions + retries; pending live-project verification (A1).
 - [/] Invalid recipient code fails fast with clear UI
-  - Done when: Sender cannot start upload to a non-existent code.
-  - Evidence: `RecipientLookupController` blocks malformed codes immediately and shows a clear "No device is registered under that code yet" message when Firestore lookup misses; covered by `recipient_lookup_controller_test.dart`.
+  - Evidence: `RecipientLookupController` rejects malformed codes synchronously and surfaces "No device is registered under that code yet" on Firestore miss; covered by `recipient_lookup_controller_test.dart`.
 - [/] Recipient offline behavior implemented
-  - Done when: Queued delivery or explicit rejection policy is implemented and documented.
-  - Evidence: remote transfer records now persist in Firestore and can appear in the recipient inbox when the user later opens the app, but TTL enforcement, explicit expiry behavior, and push-based discovery are still pending.
+  - Evidence: Firestore records persist and surface when recipient next opens the app. TTL enforcement and push-based wake land with A8 (Cloud Function).
 - [/] Network drop mid-transfer handled
-  - Done when: Resume, restart, or fail-cleanly policy works and is tested.
-  - Evidence: `FirebaseStorageTransferEngine` now maps both upload and download failures into recoverable failed states and exposes retry, which currently restarts the incomplete file cleanly rather than resuming chunk offsets; device validation and a stronger resumable strategy are still pending.
+  - Evidence: failures mapped to recoverable state; retry restarts from zero today. True chunk-offset resume lands with native background engines (B2/B3). Will be documented honestly in README (A10).
 - [/] Large files handled without OOM
-  - Done when: Hard size ceiling is enforced and near-limit files stream safely.
-  - Evidence: `TransferDraftValidator` now enforces per-file and per-batch ceilings before upload, `FilePicker.pickFiles(withData: false)` keeps selection metadata-only, and `FirebaseStorageTransferEngine.putFile` streams bytes from disk instead of loading whole files into memory; resumable chunk recovery is still pending.
+  - Evidence: `TransferDraftValidator` ceilings; `FilePicker.pickFiles(withData: false)` keeps selection metadata-only; `FirebaseStorageTransferEngine.putFile` streams from disk. Pending 500MB on-device run (A11).
 - [/] Multiple files at once with partial failure isolation
-  - Done when: One file can fail without killing the whole batch.
-  - Evidence: multi-file batch selection, per-file metadata, and per-file progress are implemented in the draft, upload, download, and remote transfer record layers, and already-saved receiver files are preserved across retry, but a failed file still stops the active batch today so full partial-failure isolation is still pending.
+  - Evidence: per-file progress + metadata + retry surfaces exist; fail-fast loop will be replaced in A2 so one failed file no longer stops the batch.
 - [ ] Permission denial degrades gracefully
-  - Done when: Denied storage/photos/notifications does not crash the app.
-  - Evidence:
+  - Evidence: Landing in A4 via `PermissionGateway` + `permission_handler`.
 - [ ] Incoming transfer while app is closed is discoverable
-  - Done when: Notification/deep-link or equivalent recipient entry path works.
-  - Evidence:
+  - Evidence: Landing in A8 via Cloud Function + `flutter_local_notifications` + GoRouter deep link.
 - [/] Transport encryption enforced
-  - Done when: HTTPS/TLS is used end to end and documented in README.
-  - Evidence: the current Firebase Auth, Firestore, and Firebase Storage client paths use TLS-backed Firebase connections by default; final README coverage plus any future relay transport documentation are still pending.
+  - Evidence: Firebase Auth/Firestore/Storage are TLS by default. README documentation lands in A10.
 
-### 4.3 Important Non-Starred Cases We Still Intend To Handle
+### 4.3 Important Non-Starred Cases
 - [x] Ambiguous characters removed from code alphabet
-  - Done when: `O/0`, `I/l/1` style ambiguity cannot be issued.
-  - Evidence: `RecipientCodeCodec.alphabet` excludes ambiguous characters and `short_code_generator_test.dart` verifies generated codes avoid them.
+  - Evidence: `RecipientCodeCodec.alphabet` excludes `O/0/I/l/1`; `short_code_generator_test.dart` verifies.
 - [x] Self-send policy implemented
-  - Done when: Self-send is either blocked or explicitly supported with clear UX.
-  - Evidence: `RecipientLookupController.resolveRecipient` compares the target code against the current local identity and blocks self-send with explicit UI copy; covered by `recipient_lookup_controller_test.dart`.
+  - Evidence: `RecipientLookupController.resolveRecipient` blocks self-send with explicit UX.
 - [ ] Duplicate delivery dedupes by transfer ID
-  - Done when: Receiver does not duplicate files due to retries.
-  - Evidence:
+  - Evidence: Landing in A9 via `(batchId, fileId)` lookup on save + FCM message-id dedupe.
 - [/] Metered connection warning added
-  - Done when: Large cellular transfers require an explicit confirmation.
-  - Evidence: `NetworkPolicy.confirmOnMetered` is now modeled and selectable in the sender draft flow, but it is not yet enforced by the upload/data-plane logic.
+  - Evidence: `NetworkPolicy` modeled and selectable; enforcement lands in A6 with `connectivity_plus`.
 - [/] Unusual MIME and zero-byte files do not crash
-  - Done when: `.heic`, `.webp`, `.mov`, extensionless, and empty files are handled.
-  - Evidence: `MimeTypeGuesser` now classifies common mobile formats with `application/octet-stream` fallback, and `transfer_draft_validator_test.dart` explicitly covers zero-byte-file acceptance; end-to-end transport/save coverage is still pending.
+  - Evidence: `MimeTypeGuesser` + `transfer_draft_validator_test.dart` cover extensions and zero-byte; transport coverage lands with device tests (A11).
 - [x] Filename conflict policy implemented
-  - Done when: Save collisions rename deterministically.
-  - Evidence: `ReceivedTransferFileStore.createTargetFile` now saves incoming files under a per-batch app-storage directory and deterministically appends ` (2)`, ` (3)`, and so on when a filename already exists; covered by `received_transfer_file_store_test.dart`.
+  - Evidence: `ReceivedTransferFileStore.createTargetFile` appends deterministic suffixes; covered by `received_transfer_file_store_test.dart`.
 - [ ] Corruption detection via hash verification
-  - Done when: Sender hash and receiver hash are compared and mismatch is actionable.
-  - Evidence:
+  - Evidence: Landing in A3 (SHA-256 streaming hash on sender + receiver).
 - [ ] Low storage preflight checks implemented
-  - Done when: Receive path refuses transfers that cannot fit locally.
-  - Evidence:
+  - Evidence: Landing in A5.
 - [ ] Background / process death recovery implemented
-  - Done when: In-progress state is restored or failed cleanly on next launch.
-  - Evidence:
+  - Evidence: Landing in A7; deeper recovery with native engines in B2/B3.
 - [ ] Network transitions and airplane mode handled
-  - Done when: Reconnect and reconciliation logic are tested.
-  - Evidence:
+  - Evidence: Partial from A6 (`connectivity_plus` subscription) + A7 (resume on boot); documented openly in README.
 
 ### 4.4 Bonus Targets
 - [/] Bonus A: Pigeon bridge defined and integrated
-  - Done when: Dart <-> native contracts are generated and used for transfer actions/events.
-  - Evidence: `pigeons/native_transfer_bridge.dart` now defines the host and Flutter APIs; code generation and native hookup are still pending.
-- [ ] Bonus B: Android background transfer
-  - Done when: Foreground service / WorkManager keeps transfer alive and progress is reconciled.
-  - Evidence:
-- [ ] Bonus C: iOS background transfer
-  - Done when: Background URLSession continues or reconciles transfer correctly after relaunch.
-  - Evidence:
-- [ ] Bonus D: Native picker integration
-  - Done when: OS-native document picker is used through platform channels instead of a package.
-  - Evidence:
-- [ ] Bonus E: Native save-to-gallery/downloads
-  - Done when: Received media can be saved via MediaStore / Photos or Files integration.
-  - Evidence:
+  - Evidence: `pigeons/native_transfer_bridge.dart` contract present; generation + native wiring land in B1.
+- [ ] Bonus B: Android background transfer (WorkManager + Foreground Service)
+  - Evidence: Plan in B2. Depends on B1.
+- [ ] Bonus C: iOS background transfer (`URLSession` background config)
+  - Evidence: Plan in B3. Depends on B1.
+- [ ] Bonus D: Native picker integration (SAF + UIDocumentPicker)
+  - Evidence: Plan in B4.
+- [ ] Bonus E: Native save-to-gallery/downloads (MediaStore + PHPhotoLibrary)
+  - Evidence: Plan in B5.
 - [-] Bonus F: Nearby fallback transport
-  - Done when: Nearby discovery and peer transfer work without breaking the cloud path.
-  - Evidence:
+  - Evidence: Explicitly deferred; noted in README.
 
 ## 5. Milestones
 
-- [/] M0 Foundation
-  - Done when: Flutter app skeleton, env management, CI/lint/test setup, Firebase project, and architecture boundaries are established.
-  - Evidence: Flutter app scaffolded at repo root, `.env.example` expanded with Firebase keys, app shell and domain contracts implemented, runtime Firebase bootstrap added, `flutter analyze` clean, `flutter test` passing on 2026-04-19. Real Firebase project values and device verification are the remaining M0 gap.
+- [x] M0 Foundation
+  - Evidence: Flutter shell, env management, lint/test, Firebase bootstrap, architecture boundaries; `flutter analyze` + `flutter test` green on 2026-04-19.
 
 - [/] M1 Identity And Addressing
-  - Done when: Anonymous identity, short-code generation, lookup, profile display, and invalid code handling are working.
-  - Evidence: hybrid identity registration, Firestore code reservation, recipient lookup repository, and send-screen lookup UI are implemented in code; live project verification is still pending.
+  - Evidence: Hybrid identity, Firestore reservation, recipient lookup, profile UI, invalid-code handling implemented. Gate: live-project verification (A1).
 
 - [/] M2 Core Transfer Happy Path
-  - Done when: Cross-device upload/download works in both directions with progress and final statuses.
-  - Evidence: sender-side file selection, preflight validation, network-policy choice, Firestore-backed transfer creation, live inbox discovery, accept/reject actions, Firebase Storage upload initiation, recipient download/save into app storage, completed receiver history, and shared sender/recipient progress are now implemented and covered by passing analyzer/tests; device validation and the final resumable transport decision are still pending.
+  - Evidence: selection, validation, Firestore-backed transfer records, inbox discovery, accept/reject, Storage upload + download + save + history, shared progress implemented and green in tests. Gate: device-level verification (A11).
 
 - [ ] M3 Resilience And Starred Cases
-  - Done when: All starred edge cases are implemented and verified on both platforms.
-  - Evidence:
+  - Evidence: completes with A2–A9. All ★ boxes must flip green.
 
 - [ ] M4 Native Background Transfer Bonus
-  - Done when: Android and iOS native background transfer implementations are stable and reconciled in Flutter.
-  - Evidence:
+  - Evidence: completes with B1–B3.
 
 - [ ] M5 Cross-Platform Hardening
-  - Done when: Real-device parity matrix passes and major non-starred failure cases are covered.
-  - Evidence:
+  - Evidence: device matrix + OEM/permission polish (partly covered by A4/A7; finalized with B2/B3).
 
 - [ ] M6 Submission Assets
-  - Done when: README, APK, iOS build path, video walkthrough, and Drive folder are ready.
-  - Evidence:
+  - Evidence: A10 (README) + A11 (APK + iOS + video + Drive).
 
 ## 6. Workstream Tracker
 
 ### 6.1 Architecture And Foundation
-- [x] Create feature modules and dependency boundaries
-  - Done when: Presentation, application, domain, and data layers are separated.
-  - Evidence: `lib/app`, `lib/core`, `lib/features`, and `lib/shared` are in place with identity data/application/domain separation and transfer contracts isolated from UI.
-- [x] Define typed error model and transfer state machine
-  - Done when: Failure codes and lifecycle states are explicit and not stringly typed.
-  - Evidence: `core/errors/app_exception.dart` and `features/transfers/domain/entities/*` define typed failures, statuses, and policies.
-- [x] Add strict linting, formatting, and test configuration
-  - Done when: Quality gates are runnable and documented.
-  - Evidence: stricter `analysis_options.yaml` added; `flutter analyze` and `flutter test` both passed on 2026-04-19.
+- [x] Feature modules + layer boundaries — `lib/app`, `lib/core`, `lib/features`, `lib/shared`.
+- [x] Typed error model + transfer state machine — `core/errors/app_exception.dart`, `features/transfers/domain/entities/*`.
+- [x] Strict analyzer + test config — `analysis_options.yaml`, green on 2026-04-19.
+- [ ] Pattern documentation — called out in Section 3A; finalize in README (A10).
 
 ### 6.2 Backend And Relay
-- [/] Configure Firebase Auth, Firestore, FCM, Storage
-  - Done when: Anonymous auth, realtime state, push, and storage are wired.
-  - Evidence: Firebase packages added, runtime bootstrap service added, providers for auth/firestore/storage/messaging now exist, and sender uploads now write into Firebase Storage through `FirebaseStorageTransferEngine`; actual project credentials, security rules, and FCM/runtime verification remain pending.
-- [/] Implement unique short-code reservation flow
-  - Done when: Collision-safe registration exists.
-  - Evidence: `IdentityRegistryRemoteDataSource` implements Firestore-backed `users/{uid}` and `codes/{shortCode}` writes with transaction-based reservation and retry.
-- [ ] Deploy resumable relay on Cloud Run
-  - Done when: Streaming upload/download and resumption path are available.
-  - Evidence:
-- [/] Add TTL expiry, signed access, and server validation
-  - Done when: Transfer lifecycle rules are enforced server-side.
-  - Evidence: remote transfer records now store `expiresAt` and typed status fields in Firestore, but expiry jobs, signed byte access, and server-side enforcement are still pending.
+- [/] Firebase Auth, Firestore, Storage wired — providers live; rules + config pending.
+- [/] Unique short-code reservation flow — Firestore transactional reservation; pending live verification.
+- [ ] **FCM Cloud Function for closed-app discovery** — A8.
+  - Cloud Function `functions/src/onTransferCreated.ts`: Firestore `onDocumentCreated` trigger → read `users/{recipientUid}.fcmTokens` → `admin.messaging().sendEachForMulticast` with data message.
+  - Requires Blaze enabled.
+- [ ] Firestore + Storage security rules — `firebase/firestore.rules` + `firebase/storage.rules`, deployed via `firebase deploy`.
+- [-] Cloud Run resumable relay — deferred; Firebase Storage native resumable upload covers the requirement. Document in README.
+- [ ] TTL + signed access — client already writes `expiresAt`; enforcement via scheduled Cloud Function (stretch, post-demo).
 
 ### 6.3 Flutter Transfer Experience
-- [x] Onboarding and profile screen
-  - Done when: User can see and share their code.
-  - Evidence: dashboard/profile routes render the provisioned local identity and runtime configuration through the new app shell.
-- [x] Recipient lookup and send composer
-  - Done when: Sender can resolve code and prepare a batch.
-  - Evidence: send screen now includes backend-backed recipient lookup with validation, self-send blocking, missing-recipient messaging, file picking, network-policy selection, and local transfer-draft creation.
-- [/] Sender progress UI
-  - Done when: Per-file and aggregate states are visible and actionable.
-  - Evidence: the send flow now shows outgoing transfer records, batch-level controls, and a shared `TransferProgressSummary` with per-file plus aggregate upload progress wired to Firestore-backed state.
-- [x] Recipient inbox and accept/reject flow
-  - Done when: Incoming transfers are visible and can be acted on.
-  - Evidence: inbox now watches shared transfer batches, renders incoming Firestore-backed transfers in real time, updates batch status through `TransferBatchActionController`, and mirrors sender upload progress through the same shared transfer documents.
-- [ ] Download progress, save flow, and completed history
-  - Done when: Receiver can save and review received files.
-  - Evidence:
+- [x] Onboarding / profile — dashboard + profile render identity and runtime config.
+- [x] Recipient lookup + send composer — Firestore-backed with validation, self-send block, picker, policy selector.
+- [/] Sender progress UI — per-file + aggregate rendering in place; add partial-failure visualization (A2).
+- [x] Recipient inbox + accept/reject — live stream, action controller, shared progress.
+- [/] Download progress + save + completed history — implemented; integrity check (A3), dedupe (A9), and low-storage (A5) still pending.
+- [ ] Notification tap → deep link — A8 wires `go_router` deep link into `/inbox?batch=<id>`.
 
 ### 6.4 Android Native
-- [ ] Implement Pigeon Android host API
-  - Done when: Flutter can start, pause, resume, cancel, and query transfers natively.
-  - Evidence:
-- [ ] Implement WorkManager / foreground service path
-  - Done when: Upload/download survives backgrounding under supported conditions.
-  - Evidence:
-- [ ] Implement Android notifications and deep links
-  - Done when: Closed-app incoming transfers are discoverable.
-  - Evidence:
+- [ ] Pigeon Android host API — B1 generates the skeleton; B2 implements methods.
+- [ ] WorkManager + Foreground Service — B2. Service type `dataSync`; notification channel; OkHttp / Firebase Storage SDK for bytes; Firestore SDK for progress sync.
+- [ ] Android permission UX — A4 (notifications + Android 13 media).
+- [ ] Android notifications + deep links — A8 delivers FCM; native intent opens MainActivity with extras consumed by GoRouter.
+- [ ] `MediaStore.Downloads` save — B5.
+- [ ] `ACTION_OPEN_DOCUMENT` picker — B4.
 
 ### 6.5 iOS Native
-- [ ] Implement Pigeon iOS host API
-  - Done when: Flutter can drive native transfer behavior on iPhone.
-  - Evidence:
-- [ ] Implement background URLSession path
-  - Done when: Upload/download reconcile correctly after suspension or relaunch.
-  - Evidence:
-- [ ] Implement iOS notifications and deep links
-  - Done when: Closed-app incoming transfers are discoverable.
-  - Evidence:
+- [ ] Pigeon iOS host API — B1 generates; B3 implements.
+- [ ] Background `URLSession` — B3.
+- [ ] iOS permission UX — A4 (`NSPhotoLibraryAddUsageDescription`, `NSUserNotificationsUsageDescription`).
+- [ ] iOS notifications + deep links — A8 via APNs through FCM.
+- [ ] `PHPhotoLibrary` save — B5.
+- [ ] `UIDocumentPickerViewController` picker — B4.
 
 ### 6.6 Reliability And Edge Cases
-- [ ] Disk-space checks
-  - Done when: Receive path validates storage before accepting/writing.
-  - Evidence:
-- [ ] Hash verification
-  - Done when: Corruption is detected and surfaced.
-  - Evidence:
-- [/] Retry, cancel, and backoff logic
-  - Done when: Long-running operations are always controllable and actionable.
-  - Evidence: sender-side transfer actions now expose upload start, cancel, and retry semantics through `TransferBatchActionController` and `FirebaseStorageTransferEngine`; automated backoff and receiver-side control are still pending.
-- [ ] Persistence and reconciliation
-  - Done when: Backgrounding, rotation, and process death do not lose state silently.
-  - Evidence:
+- [ ] Disk-space checks — A5.
+- [ ] Hash verification — A3.
+- [/] Retry / cancel / backoff — cancel + retry implemented; exponential backoff + per-file retry land in A2.
+- [ ] Persistence / reconciliation — A7 (boot-time stale scan); strengthened by B2/B3.
+- [ ] Metered-connection enforcement — A6.
+- [ ] Duplicate delivery dedupe — A9.
 
 ### 6.7 Docs, QA, And Submission
-- [ ] Real-device test matrix filled
-  - Done when: Android phone and iPhone results are recorded.
-  - Evidence:
-- [ ] README completed
-  - Done when: Setup, architecture, tradeoffs, handled cases, and known limitations are honest and complete.
-  - Evidence:
-- [ ] Walkthrough video scripted and recorded
-  - Done when: Happy path plus at least two failures are shown on camera.
-  - Evidence:
-- [ ] Submission package assembled
-  - Done when: APK, iOS instructions/build, source, README, `.env.example`, and video are in Drive.
-  - Evidence:
+- [ ] Real-device test matrix — A11.
+- [ ] README rewrite — A10.
+- [ ] Walkthrough video — A11.
+- [ ] Drive package — A11.
 
 ## 7. Device And Test Matrix
-- Android physical device:
-- Android OS version:
-- iPhone physical device:
-- iOS version:
-- Android emulator:
-- Test date:
+- Android emulator (Mac host): TBD — to be filled in A11.
+- Android OS version: TBD.
+- iPhone physical device: YES — owner-supplied.
+- iOS version: TBD.
+- Test date: 2026-04-20.
 - Last successful Android -> iPhone run:
 - Last successful iPhone -> Android run:
 - Last successful background recovery run on Android:
 - Last successful background recovery run on iPhone:
 - Known platform-specific issues:
 
+Brief explicitly allows "one physical + one emulator"; iPhone is the physical device, Android is the emulator. Document this choice honestly in README.
+
 ## 8. Risk Register
-- Risk:
-  - Impact:
-  - Mitigation:
-  - Owner:
-  - Status:
-- Risk: Firebase and Cloud Run setup may consume more time than the local app foundation.
-  - Impact: M1 and M2 could slip if backend contracts are left ambiguous.
-  - Mitigation: Keep client contracts fixed, wire anonymous auth/code reservation first, and defer non-critical polish.
+- Risk: Blaze billing not enabled in time to deploy Cloud Function for FCM.
+  - Impact: ★ closed-app discovery box stays unchecked; rubric hit.
+  - Mitigation: Enable Blaze before starting A8; if blocked, fall back to Option B (local notification on next open) and document honestly in README.
   - Owner: Piyush
   - Status: Open
-- Risk: Runtime-configured Firebase may behave differently on Android and iPhone if platform app IDs or bundle identifiers are wrong.
-  - Impact: Identity registration and recipient lookup can appear implemented in code but fail on-device.
-  - Mitigation: Validate Android and iPhone bootstrap separately with real credentials before moving on to transfer work.
+- Risk: iPhone build path requires Apple Developer enrollment for TestFlight.
+  - Impact: Submission cannot ship a TestFlight link.
+  - Mitigation: Provide Xcode run instructions and unsigned build; brief explicitly accepts this.
   - Owner: Piyush
   - Status: Open
-- Risk:
-  - Impact:
-  - Mitigation:
-  - Owner:
-  - Status:
-- Risk:
-  - Impact:
-  - Mitigation:
-  - Owner:
-  - Status:
+- Risk: Native background bonus (B2/B3) pulls hours from Track A.
+  - Impact: Track A items slip; rubric penalized for unfinished ★.
+  - Mitigation: Hard rule — bonus work starts only after Track A is green and video is recorded.
+  - Owner: Piyush
+  - Status: Open
+- Risk: Firestore security rules too strict or too permissive.
+  - Impact: Either functional breakage under test or open-to-world data.
+  - Mitigation: Author rules narrowly scoped by `request.auth.uid` matching `senderUid`/`recipientUid`; test in Firebase Emulator Suite before deploy.
+  - Owner: Piyush
+  - Status: Open
+- Risk: Retry currently restarts files rather than resuming offsets.
+  - Impact: Slow recovery on large-file mid-transfer drops.
+  - Mitigation: Land B2/B3 for true resume via native Firebase Storage SDK; document limitation honestly if bonus slips.
+  - Owner: Piyush
+  - Status: Open
+- Risk: OEM battery killers on Android may drop the foreground service.
+  - Impact: Bonus B demo fragile on non-stock Android.
+  - Mitigation: Run demo on stock Android emulator; document OEM caveat in README.
+  - Owner: Piyush
+  - Status: Open
 
 ## 9. Decision Log
 - Date: 2026-04-19
   - Decision: Build the client foundation around typed domain contracts and local anonymous identity before Firebase/relay integration.
-  - Why: This locks the system boundaries early and gives the backend and native layers stable interfaces to target.
-  - Tradeoff: End-to-end transfer is not available yet even though the app shell is now production-grade.
+  - Why: Locks system boundaries early; backend and native layers get stable interfaces.
+  - Tradeoff: End-to-end transfer not available until later slice.
 - Date: 2026-04-19
-  - Decision: Initialize Firebase from explicit runtime defines instead of checked-in platform secret files.
-  - Why: This keeps secrets out of the repo and makes Android+iPhone setup reproducible without generated local files.
-  - Tradeoff: Real device verification now depends on supplying correct platform-specific runtime values before backend-backed flows can be exercised.
+  - Decision: Initialize Firebase from `--dart-define` values, not checked-in secret files.
+  - Why: Keeps secrets out of repo; reproducible Android/iOS setup without generated local files.
+  - Tradeoff: Real-device verification depends on supplying correct platform-specific values per build.
 - Date: 2026-04-19
-  - Decision: Use `file_picker` for the core sender-drafting slice and keep native picker work for the bonus track.
-  - Why: The assessment explicitly rewards rough but real progress, and the core weighted milestone is end-to-end transfer rather than native picker polish.
-  - Tradeoff: The picker path now needs an honest README note because it is intentionally not the bonus-native implementation.
+  - Decision: Use `file_picker` for the core sender-drafting slice.
+  - Why: Core rubric is end-to-end transfer, not picker polish. Bonus D is a drop-in replacement via Strategy pattern.
+  - Tradeoff: Requires honest README note that native picker is intentionally the bonus path.
 - Date: 2026-04-19
-  - Decision: Use Firestore transfer documents as the control-plane source of truth before adding upload/download bytes.
-  - Why: This unlocks cross-device inbox discovery, accept/reject semantics, and shared status transitions without waiting for the relay data plane.
-  - Tradeoff: Reviewers can now see transfers appear remotely, but actual file movement and progress remain incomplete until the relay/upload slice lands.
+  - Decision: Use Firestore transfer documents as the single control-plane source of truth before adding byte transport.
+  - Why: Unlocks cross-device inbox, accept/reject, and shared status transitions without waiting on data-plane decisions.
+  - Tradeoff: Nothing — this is the correct industry pattern (event log + listeners).
 - Date: 2026-04-19
-  - Decision: Use direct Firebase Storage upload as the first real data-plane slice before introducing a Cloud Run resumable relay.
-  - Why: This gets actual bytes moving and shared sender/recipient progress visible quickly while preserving a clear seam for a later relay/native background upgrade.
-  - Tradeoff: Current retry behavior restarts the incomplete file rather than resuming true chunk offsets, so transport hardening is still required.
+  - Decision: Use direct Firebase Storage upload as the data plane.
+  - Why: Real bytes moving with minimum risk; native SDK pause/resume and TLS out of the box; clean seam for the later native-background engine behind the same `TransferEngine` interface.
+  - Tradeoff: Current retry restarts files; true chunk resume lands with B2/B3.
+- Date: 2026-04-20
+  - Decision: Closed-app discovery via Firebase Cloud Function on Blaze (Option A), not client-side fallback.
+  - Why: ★ requirement in the brief; Option A is the only approach that wakes a truly killed app. Free-tier cost at demo volume is $0.
+  - Tradeoff: Blaze enablement is a prerequisite; ~30 min of TypeScript + deploy time.
+- Date: 2026-04-20
+  - Decision: Partial-failure isolation implemented at the engine layer, not at the Firestore doc layer.
+  - Why: Engine already owns per-file state transitions; moving the retry boundary up would leak transfer concerns into UI.
+  - Tradeoff: Engine file gains complexity; offset by clearer state machine in one place.
+- Date: 2026-04-20
+  - Decision: Accept "one real + one emulator" setup (iPhone real + Android emulator on Mac).
+  - Why: Brief explicitly allows it and the owner has exactly this hardware set.
+  - Tradeoff: Android OEM-specific quirks won't be demonstrable; called out in README.
 
 ## 10. Session Log
+
 ### Session 2026-04-19 16:13
-- Planned work: Scaffold the Flutter codebase and replace the default template with a production-grade foundation.
-- Completed work: Created the app shell, routing, theme, secure local identity provisioning, typed transfer/recipient contracts, Pigeon bridge scaffold, README baseline, and `.env.example`.
-- Evidence added: `flutter analyze` clean; `flutter test` passed; dashboard/profile/send/inbox routes present; tracker and README updated.
-- New blocker: Firebase, FCM, Firestore code reservation, and relay deployment are still pending.
-- Next step: Implement Firebase anonymous auth, short-code reservation/lookup, and the first real send/inbox backend path.
+- Planned work: Scaffold Flutter codebase, replace default template with production foundation.
+- Completed work: App shell, routing, theme, secure local identity, typed transfer/recipient contracts, Pigeon scaffold, README baseline, `.env.example`.
+- Evidence: `flutter analyze` + `flutter test` green.
+- Blocker: Firebase, FCM, Firestore reservation, relay deployment pending.
+- Next step: Anonymous auth, short-code reservation/lookup, first real send/inbox backend path.
 
 ### Session 2026-04-19 16:41
-- Planned work: Add Firebase bootstrap, hybrid identity registration, and recipient lookup without breaking the foundation architecture.
-- Completed work: Added Firebase runtime configuration, bootstrap service, hybrid local+remote identity repository, Firestore code reservation logic, and recipient lookup UI/controller.
-- Evidence added: `flutter analyze` clean; `flutter test` passed; `.env.example` and README updated with Firebase runtime keys.
-- New blocker: Real Firebase credentials and physical-device validation are still required before the addressing flow can be marked fully complete.
-- Next step: Configure a live Firebase project, validate registration and lookup on Android+iPhone, then start the first real transfer draft flow.
+- Planned work: Firebase bootstrap, hybrid identity, recipient lookup.
+- Completed work: Runtime Firebase config, bootstrap service, hybrid identity repo, Firestore reservation, recipient lookup UI + controller.
+- Evidence: `flutter analyze` + `flutter test` green; `.env.example` + README updated.
+- Blocker: Real Firebase creds + device validation pending.
+- Next step: Configure live Firebase, validate on devices, start first real transfer draft flow.
 
 ### Session 2026-04-19 16:46
-- Planned work: Harden the addressing slice with user-facing actions and tests for the new lookup rules.
-- Completed work: Added copy-code and refresh-registration actions in profile, plus controller tests for malformed codes, self-send blocking, and missing-recipient messaging.
-- Evidence added: `flutter analyze` clean; `flutter test` passed with the new recipient lookup controller tests.
-- New blocker: Backend-backed registration and lookup still need real Firebase credentials and device verification.
-- Next step: Configure Firebase values locally and validate Android+iPhone registration plus lookup before building transfer drafts.
+- Planned work: Harden addressing with user-facing actions and tests.
+- Completed work: Copy-code + refresh-registration, controller tests for malformed/self-send/missing.
+- Evidence: tests green.
+- Blocker: Backend-backed registration still needs live Firebase + device verification.
+- Next step: Configure Firebase, validate on devices.
 
 ### Session 2026-04-19 18:55
-- Planned work: Implement the first `M2` slice by allowing the sender to pick files, validate them, and create a local transfer draft before any transport code is added.
-- Completed work: Added `file_picker`, a transfer file-selector abstraction, MIME inference, draft validation, an in-memory transfer repository, a draft-composer controller, send-screen file selection/UI, and outgoing draft visibility/cancellation.
-- Evidence added: `flutter analyze` clean; `flutter test` passed with new transfer-draft controller and validator coverage.
-- New blocker: The send flow now stops at local draft creation because upload/download, relay transport, and recipient-side realtime delivery are not implemented yet.
-- Next step: Build the next `M2` slice by writing transfer records remotely and connecting the first real upload initiation path on top of the new draft queue.
+- Planned work: First M2 slice — pick files, validate, create local draft.
+- Completed work: `file_picker` integration, file-selector abstraction, MIME inference, draft validator, in-memory transfer repo, composer controller, send-screen UI, outgoing draft cancellation.
+- Evidence: `flutter analyze` + `flutter test` green with new controller + validator coverage.
+- Blocker: Send flow ends at draft creation; upload/download + relay transport + realtime delivery still missing.
+- Next step: Remote transfer records + first upload initiation path.
 
 ### Session 2026-04-19 19:08
-- Planned work: Replace the inbox placeholder with a real shared transfer feed and make sender-created drafts become remote transfer records when Firebase is configured.
-- Completed work: Added Firestore-backed transfer creation/watch logic, a hybrid transfer repository with local fallback, recipient-aware transfer creation, live inbox rendering, and accept/reject batch actions.
-- Evidence added: `flutter analyze` clean; `flutter test` passed with new recipient-action controller coverage and the existing draft tests updated for the new repository contract.
-- New blocker: Actual file bytes still do not upload/download, and Firebase-backed behavior still needs live-project/device validation.
-- Next step: Connect the first upload initiation path and sender/recipient progress updates on top of the new shared transfer records.
+- Planned work: Replace inbox placeholder with real shared transfer feed.
+- Completed work: Firestore-backed transfer creation/watch, hybrid transfer repo with local fallback, recipient-aware creation, live inbox, accept/reject actions.
+- Evidence: tests green.
+- Blocker: Actual bytes still don't move; live-project/device validation pending.
+- Next step: Connect first upload initiation path with shared progress.
 
 ### Session 2026-04-19 19:20
-- Planned work: Refresh the tracker so the remaining execution order matches the actual repo state after the Firestore-backed transfer/inbox slice.
-- Completed work: Expanded the top-level left-to-do summary, added an ordered remaining-work checklist, and updated partial statuses/evidence for the unfinished transfer, relay, and edge-case work.
-- Evidence added: `PROJECT_TRACKER.md` now reflects the current state of the codebase and the remaining execution order from Firebase validation through submission packaging.
-- New blocker: None beyond the already tracked transport/data-plane gap and live Firebase/device validation gap.
-- Next step: Implement upload initiation and shared sender/recipient progress on top of the existing transfer records.
+- Planned work: Refresh tracker against actual repo state.
+- Completed work: Expanded left-to-do, added ordered remaining-work checklist, refreshed partial statuses/evidence.
+- Evidence: `PROJECT_TRACKER.md` updated.
+- Blocker: Transport/data-plane gap + live validation.
+- Next step: Implement upload initiation and shared progress.
 
 ### Session 2026-04-19 19:42
-- Planned work: Connect the first real sender upload path to the Firestore-backed transfer records and surface shared progress on both sender and recipient screens.
-- Completed work: Added a remote-context resolver, extended the transfer repository contract, implemented `FirebaseStorageTransferEngine`, preserved sender-local source metadata for remote batches, wired upload start/cancel actions, and rendered shared per-file plus aggregate upload progress in the send and inbox screens.
-- Evidence added: `flutter analyze` clean; `flutter test` passed; `TransferProgressSummary` is now used by both send/inbox; outgoing uploads now persist progress through `FirestoreTransferRemoteDataSource.updateOutgoingTransferBatch`.
-- New blocker: Receiver download/save, Storage/Firestore rules, live Firebase/device validation, and stronger resumable transport behavior are still pending.
-- Next step: Validate the current upload path on configured devices, then build recipient-side download/save and the remaining starred transport edge cases.
+- Planned work: Connect first real sender upload path with shared progress on both screens.
+- Completed work: Remote-context resolver, extended repository contract, `FirebaseStorageTransferEngine`, upload start/cancel, shared per-file + aggregate progress rendering.
+- Evidence: `flutter analyze` + `flutter test` green; `TransferProgressSummary` reused by send + inbox.
+- Blocker: Receiver download/save, rules, live validation, stronger resumable behavior pending.
+- Next step: Validate on devices; build recipient-side download + remaining starred edge cases.
+
+### Session 2026-04-20 (in progress)
+- Planned work: Audit repo against brief; rewrite tracker with prioritized Track A (P0) + Track B (bonus) plan; confirm design-pattern discipline; pick FCM delivery strategy.
+- Completed work: Full codebase audit (all `lib/` + pigeons + android/ + ios/ + tests); gap matrix against brief ★ items + bonus; architectural-principles section; prioritized Track A/B plan with file-level references; decision on Option A (Cloud Function on Blaze) for closed-app discovery.
+- Evidence: `PROJECT_TRACKER.md` rewritten with current state of code and remaining work.
+- Blocker: Blaze billing not yet enabled on the Firebase project (required for A8).
+- Next step: Enable Blaze → start Track A in order (A1 → A2 → A3 → ...); Track B only after A11 is shipped.
 
 ## 11. Final Submission Checklist
-- [ ] Signed debug APK tested on clean Android device
-  - Evidence:
-- [ ] iPhone build path verified
-  - Evidence:
-- [ ] Source repo or zip ready
-  - Evidence:
-- [ ] `.env.example` included and secrets excluded
-  - Evidence:
-- [ ] README finalized
-  - Evidence:
-- [ ] Architecture diagram included in README
-  - Evidence:
-- [ ] AI tool usage disclosed honestly
-  - Evidence:
-- [ ] Video walkthrough recorded
-  - Evidence:
-- [ ] Drive folder assembled and share settings checked
-  - Evidence:
+- [ ] Signed debug APK tested on clean Android device/emulator — A11.
+- [ ] iPhone build path verified via Xcode — A11.
+- [ ] Source available (GitHub link or zipped repo in Drive) — A11.
+- [ ] `.env.example` included; secrets excluded — already in repo; audit before zip.
+- [ ] README finalized — A10.
+- [ ] Architecture diagram (ASCII) in README — A10.
+- [ ] AI tool usage disclosed honestly — A10.
+- [ ] Video walkthrough recorded — A11.
+- [ ] Drive folder assembled with public-view link — A11.
