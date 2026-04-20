@@ -11,6 +11,8 @@ class FirebaseRuntimeOptions {
     required this.androidAppId,
     required this.iosAppId,
     required this.iosBundleId,
+    this.androidApiKey,
+    this.iosApiKey,
   });
 
   final String? apiKey;
@@ -20,26 +22,26 @@ class FirebaseRuntimeOptions {
   final String? androidAppId;
   final String? iosAppId;
   final String? iosBundleId;
+  final String? androidApiKey;
+  final String? iosApiKey;
 
   FirebaseOptions? get currentPlatformOptions {
-    final sharedApiKey = apiKey;
     final sharedProjectId = projectId;
     final sharedMessagingSenderId = messagingSenderId;
 
-    if (sharedApiKey == null ||
-        sharedProjectId == null ||
-        sharedMessagingSenderId == null) {
+    if (sharedProjectId == null || sharedMessagingSenderId == null) {
       return null;
     }
 
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         final appId = androidAppId;
-        if (appId == null) {
+        final platformApiKey = androidApiKey ?? apiKey;
+        if (appId == null || platformApiKey == null) {
           return null;
         }
         return FirebaseOptions(
-          apiKey: sharedApiKey,
+          apiKey: platformApiKey,
           appId: appId,
           messagingSenderId: sharedMessagingSenderId,
           projectId: sharedProjectId,
@@ -48,11 +50,12 @@ class FirebaseRuntimeOptions {
       case TargetPlatform.iOS:
         final appId = iosAppId;
         final bundleId = iosBundleId;
-        if (appId == null || bundleId == null) {
+        final platformApiKey = iosApiKey ?? apiKey;
+        if (appId == null || bundleId == null || platformApiKey == null) {
           return null;
         }
         return FirebaseOptions(
-          apiKey: sharedApiKey,
+          apiKey: platformApiKey,
           appId: appId,
           messagingSenderId: sharedMessagingSenderId,
           projectId: sharedProjectId,
@@ -71,7 +74,8 @@ class FirebaseRuntimeOptions {
 
   String get missingConfigurationHint {
     final missingKeys = <String>[
-      if (apiKey == null) 'FIREBASE_API_KEY',
+      if (apiKey == null && androidApiKey == null && iosApiKey == null)
+        'FIREBASE_API_KEY (or FIREBASE_ANDROID_API_KEY + FIREBASE_IOS_API_KEY)',
       if (projectId == null) 'FIREBASE_PROJECT_ID',
       if (messagingSenderId == null) 'FIREBASE_MESSAGING_SENDER_ID',
       ..._platformSpecificMissingKeys(),

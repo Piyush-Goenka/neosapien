@@ -43,6 +43,8 @@ class AppEnvironment {
       ),
       firebase: FirebaseRuntimeOptions(
         apiKey: _optionalStringFromDefine('FIREBASE_API_KEY'),
+        androidApiKey: _optionalStringFromDefine('FIREBASE_ANDROID_API_KEY'),
+        iosApiKey: _optionalStringFromDefine('FIREBASE_IOS_API_KEY'),
         projectId: _optionalStringFromDefine('FIREBASE_PROJECT_ID'),
         messagingSenderId: _optionalStringFromDefine(
           'FIREBASE_MESSAGING_SENDER_ID',
