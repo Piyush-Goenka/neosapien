@@ -53,7 +53,5 @@
 		<string>remote-notification</string>
 		<string>processing</string>
 	</array>
-	<key>FirebaseAppDelegateProxyEnabled</key>
-	<false/>
 </dict>
 </plist>
