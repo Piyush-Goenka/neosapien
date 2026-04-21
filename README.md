@@ -24,11 +24,11 @@ Send media by 8-character short code between any two phones on the public intern
 | Closed-app discovery via FCM + Cloud Function | ✅ implemented |
 | Permission handling via PermissionGateway | ✅ scaffolded |
 | Network drop resume (true chunk-offset) | ⚠️ restart-from-zero for now (see [§9](#9-known-limitations)) |
-| Bonus A — Pigeon contract defined | 🟡 scaffolded, not generated |
+| Bonus A — Pigeon contract defined + generated | ✅ bindings shipped (Dart + Kotlin + Swift) |
 | Bonus B — Android background (WorkManager/FGS) | ❌ not implemented |
 | Bonus C — iOS background (URLSession) | ❌ not implemented |
 | Bonus D — native picker (SAF / UIDocumentPicker) | ❌ not implemented |
-| Bonus E — native save (MediaStore / PHPhotoLibrary) | ❌ not implemented |
+| Bonus E — native save (MediaStore / PHPhotoLibrary) | ✅ both platforms via Pigeon |
 | Bonus F — Nearby fallback transport | ❌ deferred |
 
 ---
@@ -242,6 +242,28 @@ FCM tokens are stored under `users/{uid}/private/fcm` — a subcollection whose 
 
 ---
 
+## 7.5. Native save integration (Bonus A + E)
+
+The bonus track asks for one platform-channel integration done the right way — Pigeon-generated contract, real native code on both sides. That's what Section 2 of the brief calls out:
+
+> *"pick one and implement it via platform channels (Pigeon preferred) rather than a `pub.dev` package"*
+
+### What ships
+
+- **Pigeon contract** in [`pigeons/native_transfer_bridge.dart`](pigeons/native_transfer_bridge.dart) defines `NativeMediaSaverHostApi` with `SaveFileRequest` + `SaveFileResult` data classes.
+- **Generated bindings** (committed) — [Dart](lib/platform/native_transfer_bridge.g.dart), [Kotlin](android/app/src/main/kotlin/com/neosapien/assignment/neo_sapien/NativeTransferBridge.g.kt), [Swift](ios/Runner/NativeTransferBridge.g.swift).
+- **Android impl** — [`NativeMediaSaverImpl.kt`](android/app/src/main/kotlin/com/neosapien/assignment/neo_sapien/NativeMediaSaverImpl.kt): routes by MIME to `MediaStore.Images / Video / Audio / Downloads` with atomic `IS_PENDING` publish, scoped-storage compliant (no `WRITE_EXTERNAL_STORAGE` needed on API 29+).
+- **iOS impl** — [`NativeMediaSaverImpl.swift`](ios/Runner/NativeMediaSaverImpl.swift): `PHPhotoLibrary.performChanges` for images/videos with the add-only permission request, `UIActivityViewController` share sheet for everything else (lets the user pick "Save to Files").
+- **Dart Strategy wrapper** — [`NativeMediaSaver`](lib/features/transfers/data/services/native_media_saver.dart) keeps the Pigeon class out of the rest of the codebase.
+- **UI** — per-file Save icon button on every received file in [`inbox_screen.dart`](lib/features/inbox/presentation/screens/inbox_screen.dart), with pending spinner and success/error SnackBar.
+
+### What's intentionally NOT here
+
+- **Native picker (Bonus D)** — Strategy-pattern seam exists via [`TransferFileSelector`](lib/features/transfers/domain/services/transfer_file_selector.dart); `file_picker` is the current impl, a Pigeon-wired replacement is a drop-in but was not shipped.
+- **Native background transfer (Bonus B + C)** — Pigeon contract for `NativeTransferHostApi` exists (start/pause/resume/cancel/query + progress/state Flutter API), native impls not wired. Recorded in [`pigeons/native_transfer_bridge.dart`](pigeons/native_transfer_bridge.dart) as a ready seam.
+
+---
+
 ## 8. Section 3 edge-case coverage
 
 ### 8.1 Starred (★) — all implemented
@@ -290,8 +312,7 @@ Stated up-front so reviewers can score fairly:
 1. **Restart-from-zero on network drop**, not true chunk resume. Implementation seam is ready in the `TransferEngine` Strategy pattern for the native-background engines to pick up.
 2. **Native background transfer (Bonus B + C) not implemented**. Pigeon contract is scaffolded in [`pigeons/native_transfer_bridge.dart`](pigeons/native_transfer_bridge.dart) but code generation and native Kotlin/Swift sides have not been wired.
 3. **Native picker (Bonus D) not implemented**. Using `file_picker` package as the core slice; Strategy pattern via [`TransferFileSelector`](lib/features/transfers/domain/services/transfer_file_selector.dart) means a native impl is a drop-in.
-4. **Native save-to-gallery (Bonus E) not implemented**. Files save into app-scoped `Documents/neo_sapien_received/{batchId}/`; `MediaStore.Downloads` and `PHPhotoLibrary` integration pending. Photos add-only permission already declared in [`Info.plist`](ios/Runner/Info.plist).
-5. **Nearby transport (Bonus F) not implemented**. Explicitly deferred in the plan.
+4. **Nearby transport (Bonus F) not implemented**. Explicitly deferred in the plan.
 6. **TTL / expiry enforcement is client-side only today**. Batch docs carry an `expiresAt` field but no scheduled Cloud Function sweeps expired batches yet.
 7. **Device test matrix is "1 real + 1 emulator"**: real Android phone + Android emulator on Mac. Brief explicitly allows this. OEM-specific behaviors on physical Android devices have not been demonstrated.
 8. **iOS FCM push is not demonstrated.** The iOS simulator runs the full app end-to-end (identity, recipient lookup, upload/download, SHA-256 verify, save to app Documents), and cross-platform Android ↔ iOS transfers work live in the demo. What doesn't work on the iOS simulator — by Apple's platform design — is APNs/FCM push: simulators never receive push, and real-device push requires Apple Developer Program enrollment plus an APNs key uploaded to Firebase Console. The client-side wiring (`FcmTokenRegistrar`, `IncomingTransferFcmListener`, background `URLSession` entitlements in `Info.plist`) is complete and will work once those prerequisites are met. Closed-app discovery is therefore demonstrated on Android only.

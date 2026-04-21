@@ -188,16 +188,16 @@ These are already in the codebase or baked into the plan — calling them out so
   - Evidence: `connectivity_plus` subscribed; transfers get `networkInterrupted` failure on disconnect. True auto-resume across transitions lands with native background engines (B2/B3).
 
 ### 4.4 Bonus Targets
-- [/] Bonus A: Pigeon bridge defined and integrated
-  - Evidence: `pigeons/native_transfer_bridge.dart` contract present; generation + native wiring land in B1.
+- [x] Bonus A: Pigeon bridge defined and integrated
+  - Evidence: `pigeons/native_transfer_bridge.dart` contract extended with `NativeMediaSaverHostApi`; generated bindings committed to [`lib/platform/native_transfer_bridge.g.dart`](lib/platform/native_transfer_bridge.g.dart), [Kotlin](android/app/src/main/kotlin/com/neosapien/assignment/neo_sapien/NativeTransferBridge.g.kt), [Swift](ios/Runner/NativeTransferBridge.g.swift).
 - [ ] Bonus B: Android background transfer (WorkManager + Foreground Service)
-  - Evidence: Plan in B2. Depends on B1.
+  - Evidence: Pigeon contract for `NativeTransferHostApi` is ready; Kotlin impl not wired.
 - [ ] Bonus C: iOS background transfer (`URLSession` background config)
-  - Evidence: Plan in B3. Depends on B1.
+  - Evidence: Pigeon contract is ready; Swift impl not wired; blocked on Apple Developer enrollment for real-device APNs.
 - [ ] Bonus D: Native picker integration (SAF + UIDocumentPicker)
-  - Evidence: Plan in B4.
-- [ ] Bonus E: Native save-to-gallery/downloads (MediaStore + PHPhotoLibrary)
-  - Evidence: Plan in B5.
+  - Evidence: `TransferFileSelector` Strategy interface exists; native impl would replace `file_picker` via Riverpod override.
+- [x] Bonus E: Native save-to-gallery/downloads (MediaStore + PHPhotoLibrary)
+  - Evidence: [`NativeMediaSaverImpl.kt`](android/app/src/main/kotlin/com/neosapien/assignment/neo_sapien/NativeMediaSaverImpl.kt) (MediaStore Images/Video/Audio/Downloads with atomic `IS_PENDING` publish) + [`NativeMediaSaverImpl.swift`](ios/Runner/NativeMediaSaverImpl.swift) (PHPhotoLibrary + UIActivityViewController fallback); UI entry point on every saved file in inbox via [`NativeSaveController`](lib/features/transfers/application/native_save_controller.dart).
 - [-] Bonus F: Nearby fallback transport
   - Evidence: Explicitly deferred; noted in README.
 
