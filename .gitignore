@@ -34,6 +34,7 @@ migrate_working_dir/
 /coverage/
 .env
 .env.*
+!.env.example
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
 # NOTE: Pigeon-generated Dart/Kotlin/Swift files ARE committed so the repo
@@ -47,6 +48,10 @@ functions/.env.*
 firebase-debug.log
 firestore-debug.log
 .firebase/
+
+# Internal / submission-only (kept locally, not in public repo)
+PROJECT_TRACKER.md
+NeoSapien - Mobile Developer Intern Assessment.md
 
 # Symbolication related
 app.*.symbols

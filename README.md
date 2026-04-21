@@ -36,10 +36,9 @@ Send media by 8-character short code between any two phones on the public intern
 ## 2. Submission links
 
 - **Source**: this repository
-- **APK**: see [Drive folder](#) (link in submission email)
+- **APK**: see Drive folder (link in submission email)
 - **iOS**: Xcode run instructions in [§4.3](#43-ios-build)
 - **Walkthrough video (5–8 min)**: see Drive folder
-- **Assessment brief**: [`NeoSapien - Mobile Developer Intern Assessment.md`](./NeoSapien%20-%20Mobile%20Developer%20Intern%20Assessment.md)
 
 ---
 
@@ -61,21 +60,21 @@ Send media by 8-character short code between any two phones on the public intern
 └────────────┼─────────────┘                        └─────────────┼────────────┘
              │                                                    │
     ┌────────┼────────────────────────────────────────────────────┼────────┐
-    │        │              1. CONTROL PLANE (Firestore)           │        │
+    │        │              1. CONTROL PLANE (Firestore)          │        │
     │        │  transfers/{batchId}  users/{uid}  codes/{code}    │        │
-    │        │   ◀─────── real-time snapshots (TLS) ──────▶        │        │
-    │        │                                                     │        │
-    │        │              2. DATA PLANE (Firebase Storage)       │        │
-    │        │  ──── putFile(localFile) ▶  transfers/{id}/{fileId} │        │
-    │        │                                                     │        │
-    │        │                      ◀ writeToFile(reference) ─────│        │
-    │        │                                                     │        │
-    │        │              3. DISCOVERY (FCM + Cloud Function)    │        │
-    │        │   onCreate(transfers/{id})                          │        │
-    │        │         ─▶ read users/{recipient}/private/fcm       │        │
-    │        │         ─▶ admin.messaging().sendEachForMulticast   │        │
-    │        │                  ─▶ APNs / FCM ─▶ recipient device  │        │
-    └─────────────────────────────────────────────────────────────────────────┘
+    │        │   ◀─────── real-time snapshots (TLS) ──────▶       │        │
+    │        │                                                    │        │
+    │        │              2. DATA PLANE (Firebase Storage)      │        │
+    │        │  ─── putFile(localFile) ▶  transfers/{id}/{fileId} │        │
+    │        │                                                    │        │
+    │        │                      ◀ writeToFile(reference) ──── │        │
+    │        │                                                    │        │
+    │        │              3. DISCOVERY (FCM + Cloud Function)   │        │
+    │        │   onCreate(transfers/{id})                         │        │
+    │        │         ─▶ read users/{recipient}/private/fcm      │        │
+    │        │         ─▶ admin.messaging().sendEachForMulticast  │        │
+    │        │               ─▶ APNs / FCM ─▶ recipient device    │        │
+    └──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 3.2 Layered architecture per feature
@@ -371,8 +370,7 @@ Stated up-front so reviewers can score fairly:
 │   └── native_transfer_bridge.dart  # Pigeon contract (Bonus A scaffold)
 ├── android/                         # Android platform project
 ├── ios/                             # iOS platform project
-├── test/                            # unit + widget tests (17 passing)
-└── PROJECT_TRACKER.md               # live status board
+└── test/                            # unit + widget tests (17 passing)
 ```
 
 ---
@@ -385,7 +383,7 @@ I used **Claude Code** (Anthropic) extensively on this assessment — as both pa
 - **Firebase rules**: wrote the first draft of [`firestore.rules`](firebase/firestore.rules) + [`storage.rules`](firebase/storage.rules) with Claude, then hand-checked every predicate against the actual queries used by the Firestore data source.
 - **Transfer engine refactor**: the partial-failure isolation rewrite ([§8.1](#81-starred---all-implemented) "multiple files") was guided by Claude, but the state-transition table (when to return `pendingRecipient` vs `failed` for mixed outcomes) is my decision.
 - **Cloud Function**: [`functions/src/index.ts`](functions/src/index.ts) is essentially Claude-generated boilerplate for `onDocumentCreated` → `sendEachForMulticast` with invalid-token cleanup. I verified the admin SDK call shape and the payload format expected by the Dart FCM listener.
-- **README + tracker**: both this file and [`PROJECT_TRACKER.md`](PROJECT_TRACKER.md) were drafted with Claude and reviewed end-to-end by me.
+- **README**: drafted with Claude and reviewed end-to-end by me.
 
 ### Where I overrode the AI's suggestion
 
@@ -421,8 +419,8 @@ The video covers, on a real iPhone + an Android emulator:
 7. **Failure demo 2**: send with a bad short code → fast validation + "No device is registered under that code yet" message
 8. **Failure demo 3**: kill the recipient app during an active download → relaunch → process-death reconcile marks it failed → retry completes
 9. **Closed-app demo**: force-quit Device B → Device A sends new batch → Device B gets push notification → tap routes to `/inbox?batch=<id>`
-10. 60-second code tour: [`FirebaseStorageTransferEngine`](lib/features/transfers/data/services/firebase_storage_transfer_engine.dart), [`IncomingTransferFcmListener`](lib/features/notifications/application/incoming_transfer_fcm_listener.dart), [`firestore.rules`](firebase/firestore.rules), [`PROJECT_TRACKER.md`](PROJECT_TRACKER.md)
+10. 60-second code tour: [`FirebaseStorageTransferEngine`](lib/features/transfers/data/services/firebase_storage_transfer_engine.dart), [`IncomingTransferFcmListener`](lib/features/notifications/application/incoming_transfer_fcm_listener.dart), [`firestore.rules`](firebase/firestore.rules)
 
 ---
 
-Questions or issues: see [`PROJECT_TRACKER.md`](PROJECT_TRACKER.md) for live status, risks, and session log.
+Questions or issues: open a GitHub issue on this repo.
