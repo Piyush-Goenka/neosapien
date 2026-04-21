@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neo_sapien/app/router/app_section.dart';
 import 'package:neo_sapien/core/utils/byte_count_formatter.dart';
-import 'package:neo_sapien/features/home/presentation/widgets/overview_card.dart';
 import 'package:neo_sapien/features/transfers/application/transfer_batch_action_controller.dart';
 import 'package:neo_sapien/features/transfers/application/transfer_draft_controller.dart';
-import 'package:neo_sapien/features/transfers/domain/entities/network_policy.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_batch.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_direction.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_file.dart';
@@ -40,162 +38,120 @@ class _InboxScreenBody extends ConsumerWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
       children: <Widget>[
-        OverviewCard(
-          eyebrow: 'Recipient experience',
-          title:
-              'Incoming transfers can now be accepted, downloaded, and saved.',
-          subtitle:
-              'The inbox still listens to the shared Firestore transfer feed, '
-              'but accepted uploads can now be downloaded into app storage, '
-              'retried on failure, and shown again from local saved history.',
-          children: <Widget>[
-            if (actionState.errorMessage != null)
-              _InlineMessage(message: actionState.errorMessage!, isError: true),
-            transferBatches.when(
-              data: (batches) {
-                final incomingBatches = batches
-                    .where(
-                      (batch) => batch.direction == TransferDirection.incoming,
-                    )
-                    .toList(growable: false);
-                if (incomingBatches.isEmpty) {
-                  return const _EmptyInboxState();
-                }
+        if (actionState.errorMessage != null) ...<Widget>[
+          _InlineMessage(message: actionState.errorMessage!, isError: true),
+          const SizedBox(height: 16),
+        ],
+        transferBatches.when(
+          data: (batches) {
+            final incomingBatches = batches
+                .where(
+                  (batch) => batch.direction == TransferDirection.incoming,
+                )
+                .toList(growable: false);
 
-                final activeBatches = incomingBatches
-                    .where((batch) => !_isCompletedHistoryBatch(batch))
-                    .toList(growable: false);
-                if (activeBatches.isEmpty) {
-                  return const _EmptyActiveInboxState();
-                }
+            final activeBatches = incomingBatches
+                .where((batch) => !_isCompletedHistoryBatch(batch))
+                .toList(growable: false);
+            final completedBatches = incomingBatches
+                .where(_isCompletedHistoryBatch)
+                .toList(growable: false);
 
-                return Column(
-                  children: <Widget>[
-                    for (
-                      var index = 0;
-                      index < activeBatches.length;
-                      index += 1
-                    ) ...<Widget>[
-                      _IncomingBatchCard(
-                        batch: activeBatches[index],
-                        isActionPending: actionState.isPending(
-                          activeBatches[index].id,
-                        ),
-                        onAccept: () =>
-                            actionController.accept(activeBatches[index].id),
-                        onReject: () =>
-                            actionController.reject(activeBatches[index].id),
-                        onDownload: () =>
-                            actionController.download(activeBatches[index].id),
-                        onCancelDownload: () =>
-                            actionController.cancel(activeBatches[index].id),
+            if (incomingBatches.isEmpty) {
+              return _EmptyState(
+                message: 'No incoming transfers yet.',
+              );
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                if (activeBatches.isNotEmpty) ...<Widget>[
+                  const _SectionHeader('Active'),
+                  for (
+                    var index = 0;
+                    index < activeBatches.length;
+                    index += 1
+                  ) ...<Widget>[
+                    _IncomingBatchCard(
+                      batch: activeBatches[index],
+                      isActionPending: actionState.isPending(
+                        activeBatches[index].id,
                       ),
-                      if (index < activeBatches.length - 1)
-                        const SizedBox(height: 12),
-                    ],
+                      onAccept: () =>
+                          actionController.accept(activeBatches[index].id),
+                      onReject: () =>
+                          actionController.reject(activeBatches[index].id),
+                      onDownload: () =>
+                          actionController.download(activeBatches[index].id),
+                      onCancelDownload: () =>
+                          actionController.cancel(activeBatches[index].id),
+                    ),
+                    if (index < activeBatches.length - 1)
+                      const SizedBox(height: 12),
                   ],
-                );
-              },
-              loading: () => const LinearProgressIndicator(),
-              error: (error, stackTrace) =>
-                  _InlineMessage(message: error.toString(), isError: true),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        OverviewCard(
-          eyebrow: 'Saved history',
-          title: 'Completed downloads are kept in local receiver history.',
-          subtitle:
-              'Saved file paths are merged back into the shared transfer feed, '
-              'so completed batches still render honestly after the app restarts.',
-          children: <Widget>[
-            transferBatches.when(
-              data: (batches) {
-                final completedBatches = batches
-                    .where(
-                      (batch) =>
-                          batch.direction == TransferDirection.incoming &&
-                          _isCompletedHistoryBatch(batch),
-                    )
-                    .toList(growable: false);
-                if (completedBatches.isEmpty) {
-                  return const _EmptyHistoryState();
-                }
-
-                return Column(
-                  children: <Widget>[
-                    for (
-                      var index = 0;
-                      index < completedBatches.length;
-                      index += 1
-                    ) ...<Widget>[
-                      _CompletedBatchCard(batch: completedBatches[index]),
-                      if (index < completedBatches.length - 1)
-                        const SizedBox(height: 12),
-                    ],
+                  const SizedBox(height: 24),
+                ],
+                if (completedBatches.isNotEmpty) ...<Widget>[
+                  const _SectionHeader('Saved'),
+                  for (
+                    var index = 0;
+                    index < completedBatches.length;
+                    index += 1
+                  ) ...<Widget>[
+                    _CompletedBatchCard(batch: completedBatches[index]),
+                    if (index < completedBatches.length - 1)
+                      const SizedBox(height: 12),
                   ],
-                );
-              },
-              loading: () => const LinearProgressIndicator(),
-              error: (error, stackTrace) =>
-                  _InlineMessage(message: error.toString(), isError: true),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        const OverviewCard(
-          eyebrow: 'Still to harden',
-          title: 'Receiver reliability work is narrower now.',
-          subtitle:
-              'The happy-path download/save slice is in place. The remaining '
-              'receiver gaps are preflight checks and closed-app discovery.',
-          children: <Widget>[
-            _InboxRow(label: 'Low-storage rejection before download starts'),
-            _InboxRow(label: 'Graceful permission and notification fallback'),
-            _InboxRow(label: 'Closed-app discovery with push and deep links'),
-          ],
+                ],
+              ],
+            );
+          },
+          loading: () => const LinearProgressIndicator(),
+          error: (error, stackTrace) =>
+              _InlineMessage(message: error.toString(), isError: true),
         ),
       ],
     );
   }
 }
 
-class _EmptyInboxState extends StatelessWidget {
-  const _EmptyInboxState();
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.label);
+
+  final String label;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      'No incoming transfers yet. When Firebase is configured and another '
-      'device creates a transfer for this user, it will appear here without a manual refresh.',
-      style: Theme.of(context).textTheme.bodyMedium,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 }
 
-class _EmptyActiveInboxState extends StatelessWidget {
-  const _EmptyActiveInboxState();
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.message});
+
+  final String message;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      'No active incoming work right now. Accepted uploads that still need a '
-      'download will appear here, while finished saves stay in the history card below.',
-      style: Theme.of(context).textTheme.bodyMedium,
-    );
-  }
-}
-
-class _EmptyHistoryState extends StatelessWidget {
-  const _EmptyHistoryState();
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      'Nothing has been saved to this device yet. Completed incoming batches '
-      'will move here once their files finish downloading into app storage.',
-      style: Theme.of(context).textTheme.bodyMedium,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 48),
+      child: Center(
+        child: Text(
+          message,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -266,7 +222,7 @@ class _IncomingBatchCard extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: Text(
-                  batch.senderCode?.displayValue ?? 'Unknown sender',
+                  'From ${batch.senderCode?.displayValue ?? 'Unknown'}',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -286,22 +242,17 @@ class _IncomingBatchCard extends StatelessWidget {
                 ),
               ),
               Chip(label: Text(ByteCountFormatter.format(batch.totalBytes))),
-              Chip(label: Text(_networkPolicyLabel(batch.networkPolicy))),
             ],
           ),
           const SizedBox(height: 12),
           TransferProgressSummary(
             batch: batch,
             statusOverride: switch (batch.status) {
-              TransferStatus.awaitingAcceptance =>
-                'Waiting for your decision before upload starts',
-              TransferStatus.queued =>
-                'Accepted. Waiting for the sender to start the upload',
-              TransferStatus.pendingRecipient =>
-                'Upload complete. Download and save to this device',
-              TransferStatus.downloading =>
-                'Downloading into this device storage',
-              TransferStatus.completed => 'Saved to this device',
+              TransferStatus.awaitingAcceptance => 'Waiting for you to accept',
+              TransferStatus.queued => 'Waiting for sender to upload',
+              TransferStatus.pendingRecipient => 'Ready to download',
+              TransferStatus.downloading => 'Downloading',
+              TransferStatus.completed => 'Saved',
               _ => null,
             },
           ),
@@ -355,17 +306,15 @@ class _IncomingBatchCard extends StatelessWidget {
                           ),
                     label: Text(
                       batch.status == TransferStatus.failed
-                          ? 'Retry download'
-                          : batch.status == TransferStatus.completed
-                          ? 'Download again'
-                          : 'Download & save',
+                          ? 'Retry'
+                          : 'Download',
                     ),
                   ),
                 if (canCancelDownload)
                   FilledButton.tonalIcon(
                     onPressed: isActionPending ? null : onCancelDownload,
                     icon: const Icon(Icons.cancel_outlined),
-                    label: const Text('Cancel download'),
+                    label: const Text('Cancel'),
                   ),
               ],
             ),
@@ -395,7 +344,7 @@ class _CompletedBatchCard extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: Text(
-                  batch.senderCode?.displayValue ?? 'Unknown sender',
+                  'From ${batch.senderCode?.displayValue ?? 'Unknown'}',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -443,13 +392,6 @@ class _SavedFilesList extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text(
-          'Saved locally',
-          style: Theme.of(
-            context,
-          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 8),
         for (var index = 0; index < savedFiles.length; index += 1) ...<Widget>[
           _SavedFileRow(file: savedFiles[index]),
           if (index < savedFiles.length - 1) const SizedBox(height: 8),
@@ -483,35 +425,17 @@ class _SavedFileRow extends StatelessWidget {
                 style: Theme.of(
                   context,
                 ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 2),
               Text(
-                file.localPath!,
+                ByteCountFormatter.format(file.byteCount),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
           ),
         ),
-      ],
-    );
-  }
-}
-
-class _InboxRow extends StatelessWidget {
-  const _InboxRow({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        Icon(
-          Icons.download_done_rounded,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        const SizedBox(width: 12),
-        Expanded(child: Text(label)),
       ],
     );
   }
@@ -541,12 +465,4 @@ bool _isCompletedHistoryBatch(TransferBatch batch) {
       batch.files.every(
         (file) => file.localPath != null && file.localPath!.isNotEmpty,
       );
-}
-
-String _networkPolicyLabel(NetworkPolicy policy) {
-  return switch (policy) {
-    NetworkPolicy.confirmOnMetered => 'Confirm on metered',
-    NetworkPolicy.wifiOnly => 'Wi-Fi only',
-    NetworkPolicy.allowMetered => 'Allow metered',
-  };
 }

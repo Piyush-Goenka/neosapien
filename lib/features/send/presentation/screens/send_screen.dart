@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neo_sapien/app/router/app_section.dart';
 import 'package:neo_sapien/core/utils/byte_count_formatter.dart';
-import 'package:neo_sapien/features/home/presentation/widgets/overview_card.dart';
 import 'package:neo_sapien/features/recipients/application/recipient_lookup_controller.dart';
 import 'package:neo_sapien/features/recipients/domain/entities/recipient.dart';
 import 'package:neo_sapien/features/transfers/application/transfer_batch_action_controller.dart';
@@ -54,279 +53,220 @@ class _SendScreenBody extends ConsumerWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
       children: <Widget>[
-        OverviewCard(
-          eyebrow: 'Composer',
-          title:
-              'Recipient lookup is now wired to the real addressing contract.',
-          subtitle:
-              'This is the first backend-backed slice of the send flow. '
-              'It validates the code format, blocks self-send, and checks '
-              'Firestore for a matching recipient.',
-          children: <Widget>[
-            TextField(
-              autocorrect: false,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
-                labelText: 'Recipient code',
-                hintText: 'ABCD-EFGH',
-                border: OutlineInputBorder(),
-              ),
-              onChanged: lookupController.updateInput,
-            ),
-            FilledButton.icon(
-              onPressed: lookupState.isSubmitting
-                  ? null
-                  : lookupController.resolveRecipient,
-              icon: lookupState.isSubmitting
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.person_search_rounded),
-              label: Text(
-                lookupState.isSubmitting
-                    ? 'Resolving recipient'
-                    : 'Resolve recipient',
-              ),
-            ),
-            if (lookupState.errorMessage != null)
-              _MessageRow(
-                icon: Icons.error_outline_rounded,
-                message: lookupState.errorMessage!,
-                isError: true,
-              ),
-            if (lookupState.resolvedRecipient != null)
-              _ResolvedRecipientCard(recipient: lookupState.resolvedRecipient!),
-          ],
+        const _SectionHeader('Recipient'),
+        TextField(
+          autocorrect: false,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(
+            labelText: 'Recipient code',
+            hintText: 'ABCD-EFGH',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: lookupController.updateInput,
         ),
-        const SizedBox(height: 16),
-        OverviewCard(
-          eyebrow: 'Draft batch',
-          title: 'Pick files and create the first real transfer record.',
-          subtitle:
-              'The sender still validates locally first, but a configured app '
-              'now escalates the batch into a shared remote transfer record so '
-              'the recipient inbox can update in near real time.',
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: lookupState.isSubmitting
+              ? null
+              : lookupController.resolveRecipient,
+          icon: lookupState.isSubmitting
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.person_search_rounded),
+          label: Text(lookupState.isSubmitting ? 'Checking…' : 'Find recipient'),
+        ),
+        if (lookupState.errorMessage != null) ...<Widget>[
+          const SizedBox(height: 12),
+          _MessageRow(
+            icon: Icons.error_outline_rounded,
+            message: lookupState.errorMessage!,
+            isError: true,
+          ),
+        ],
+        if (resolvedRecipient != null) ...<Widget>[
+          const SizedBox(height: 12),
+          _ResolvedRecipientCard(recipient: resolvedRecipient),
+        ],
+        const SizedBox(height: 28),
+        const _SectionHeader('Files'),
+        Row(
           children: <Widget>[
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: FilledButton.tonalIcon(
-                    onPressed:
-                        draftState.isPickingFiles || draftState.isCreatingDraft
-                        ? null
-                        : draftController.pickFiles,
-                    icon: draftState.isPickingFiles
-                        ? const SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.attach_file_rounded),
-                    label: Text(
-                      draftState.hasSelection ? 'Add files' : 'Select files',
-                    ),
-                  ),
+            Expanded(
+              child: FilledButton.tonalIcon(
+                onPressed:
+                    draftState.isPickingFiles || draftState.isCreatingDraft
+                    ? null
+                    : draftController.pickFiles,
+                icon: draftState.isPickingFiles
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.attach_file_rounded),
+                label: Text(
+                  draftState.hasSelection ? 'Add more' : 'Pick files',
                 ),
-                const SizedBox(width: 12),
-                FilledButton.tonal(
-                  onPressed: draftState.hasSelection
-                      ? draftController.clearSelection
-                      : null,
-                  child: const Text('Clear'),
-                ),
-              ],
+              ),
             ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<NetworkPolicy>(
-              initialValue: draftState.networkPolicy,
-              decoration: const InputDecoration(
-                labelText: 'Network policy',
-                border: OutlineInputBorder(),
-              ),
-              items: NetworkPolicy.values
-                  .map(
-                    (policy) => DropdownMenuItem<NetworkPolicy>(
-                      value: policy,
-                      child: Text(_networkPolicyLabel(policy)),
-                    ),
-                  )
-                  .toList(growable: false),
-              onChanged: draftState.isCreatingDraft
-                  ? null
-                  : (policy) {
-                      if (policy == null) {
-                        return;
-                      }
-                      draftController.updateNetworkPolicy(policy);
-                    },
-            ),
-            const SizedBox(height: 12),
-            _MessageRow(
-              icon: resolvedRecipient == null
-                  ? Icons.info_outline_rounded
-                  : Icons.verified_rounded,
-              message: resolvedRecipient == null
-                  ? 'Resolve a recipient before creating a draft batch.'
-                  : 'Draft will target ${resolvedRecipient.code.displayValue}.',
-            ),
-            if (draftState.errorMessage != null) ...<Widget>[
-              const SizedBox(height: 12),
-              _MessageRow(
-                icon: Icons.error_outline_rounded,
-                message: draftState.errorMessage!,
-                isError: true,
-              ),
-            ],
-            if (draftState.createdBatchId != null) ...<Widget>[
-              const SizedBox(height: 12),
-              _MessageRow(
-                icon: Icons.check_circle_outline_rounded,
-                message:
-                    'Transfer ${draftState.createdBatchId} created. '
-                    'If Firebase is configured, the recipient inbox can now see it live.',
-              ),
-            ],
-            const SizedBox(height: 16),
-            if (!draftState.hasSelection)
-              const _EmptySelectionState()
-            else ...<Widget>[
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: <Widget>[
-                  Chip(
-                    label: Text(
-                      '${draftState.selectedFiles.length} file'
-                      '${draftState.selectedFiles.length == 1 ? '' : 's'}',
-                    ),
-                  ),
-                  Chip(
-                    label: Text(
-                      ByteCountFormatter.format(draftState.totalSelectedBytes),
-                    ),
-                  ),
-                  Chip(
-                    label: Text(_networkPolicyLabel(draftState.networkPolicy)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              for (final file in draftState.selectedFiles) ...<Widget>[
-                _SelectedFileRow(
-                  file: file,
-                  onRemove: () => draftController.removeSelectedFile(file.id),
-                ),
-                const SizedBox(height: 12),
-              ],
-            ],
-            FilledButton.icon(
-              onPressed: canCreateDraft
-                  ? () => draftController.createDraft(
-                      recipient: resolvedRecipient,
-                    )
+            const SizedBox(width: 12),
+            FilledButton.tonal(
+              onPressed: draftState.hasSelection
+                  ? draftController.clearSelection
                   : null,
-              icon: draftState.isCreatingDraft
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.playlist_add_check_circle_rounded),
-              label: Text(
-                draftState.isCreatingDraft
-                    ? 'Creating draft'
-                    : 'Create transfer draft',
-              ),
+              child: const Text('Clear'),
             ),
           ],
         ),
         const SizedBox(height: 16),
-        OverviewCard(
-          eyebrow: 'Outgoing drafts',
-          title: 'Outgoing transfers can now start upload and report progress.',
-          subtitle:
-              'Local fallback remains available, but Firebase-backed transfers '
-              'now use the same queue surface so send-side state stays unified '
-              'while the sender pushes bytes into Firebase Storage.',
-          children: <Widget>[
-            if (actionState.errorMessage != null) ...<Widget>[
-              _MessageRow(
-                icon: Icons.error_outline_rounded,
-                message: actionState.errorMessage!,
-                isError: true,
+        DropdownButtonFormField<NetworkPolicy>(
+          initialValue: draftState.networkPolicy,
+          decoration: const InputDecoration(
+            labelText: 'Network policy',
+            border: OutlineInputBorder(),
+          ),
+          items: NetworkPolicy.values
+              .map(
+                (policy) => DropdownMenuItem<NetworkPolicy>(
+                  value: policy,
+                  child: Text(_networkPolicyLabel(policy)),
+                ),
+              )
+              .toList(growable: false),
+          onChanged: draftState.isCreatingDraft
+              ? null
+              : (policy) {
+                  if (policy == null) return;
+                  draftController.updateNetworkPolicy(policy);
+                },
+        ),
+        if (draftState.errorMessage != null) ...<Widget>[
+          const SizedBox(height: 12),
+          _MessageRow(
+            icon: Icons.error_outline_rounded,
+            message: draftState.errorMessage!,
+            isError: true,
+          ),
+        ],
+        if (draftState.hasSelection) ...<Widget>[
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              Chip(
+                label: Text(
+                  '${draftState.selectedFiles.length} file'
+                  '${draftState.selectedFiles.length == 1 ? '' : 's'}',
+                ),
               ),
-              const SizedBox(height: 12),
+              Chip(
+                label: Text(
+                  ByteCountFormatter.format(draftState.totalSelectedBytes),
+                ),
+              ),
             ],
-            transferBatches.when(
-              data: (batches) {
-                final outgoingBatches = batches
-                    .where(
-                      (batch) => batch.direction == TransferDirection.outgoing,
-                    )
-                    .toList(growable: false);
-                if (outgoingBatches.isEmpty) {
-                  return const _EmptyDraftsState();
-                }
-
-                return Column(
-                  children: <Widget>[
-                    for (
-                      var index = 0;
-                      index < outgoingBatches.length;
-                      index += 1
-                    ) ...<Widget>[
-                      _DraftBatchCard(
-                        batch: outgoingBatches[index],
-                        isActionPending: actionState.isPending(
-                          outgoingBatches[index].id,
-                        ),
-                        onStartUpload: () => actionController.startUpload(
-                          outgoingBatches[index].id,
-                        ),
-                        onCancel: () =>
-                            actionController.cancel(outgoingBatches[index].id),
-                      ),
-                      if (index < outgoingBatches.length - 1)
-                        const SizedBox(height: 12),
-                    ],
-                  ],
-                );
-              },
-              loading: () => const LinearProgressIndicator(),
-              error: (error, stackTrace) => _MessageRow(
-                icon: Icons.error_outline_rounded,
-                message: error.toString(),
-                isError: true,
-              ),
+          ),
+          const SizedBox(height: 12),
+          for (final file in draftState.selectedFiles) ...<Widget>[
+            _SelectedFileRow(
+              file: file,
+              onRemove: () => draftController.removeSelectedFile(file.id),
             ),
+            const SizedBox(height: 8),
           ],
+        ],
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: canCreateDraft
+              ? () => draftController.createDraft(recipient: resolvedRecipient)
+              : null,
+          icon: draftState.isCreatingDraft
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.send_rounded),
+          label: Text(
+            draftState.isCreatingDraft ? 'Creating…' : 'Send to recipient',
+          ),
+        ),
+        const SizedBox(height: 28),
+        const _SectionHeader('Outgoing transfers'),
+        if (actionState.errorMessage != null) ...<Widget>[
+          _MessageRow(
+            icon: Icons.error_outline_rounded,
+            message: actionState.errorMessage!,
+            isError: true,
+          ),
+          const SizedBox(height: 12),
+        ],
+        transferBatches.when(
+          data: (batches) {
+            final outgoingBatches = batches
+                .where(
+                  (batch) => batch.direction == TransferDirection.outgoing,
+                )
+                .toList(growable: false);
+            if (outgoingBatches.isEmpty) {
+              return Text(
+                'Nothing sent yet.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              );
+            }
+
+            return Column(
+              children: <Widget>[
+                for (
+                  var index = 0;
+                  index < outgoingBatches.length;
+                  index += 1
+                ) ...<Widget>[
+                  _DraftBatchCard(
+                    batch: outgoingBatches[index],
+                    isActionPending: actionState.isPending(
+                      outgoingBatches[index].id,
+                    ),
+                    onStartUpload: () => actionController.startUpload(
+                      outgoingBatches[index].id,
+                    ),
+                    onCancel: () =>
+                        actionController.cancel(outgoingBatches[index].id),
+                  ),
+                  if (index < outgoingBatches.length - 1)
+                    const SizedBox(height: 12),
+                ],
+              ],
+            );
+          },
+          loading: () => const LinearProgressIndicator(),
+          error: (error, stackTrace) => _MessageRow(
+            icon: Icons.error_outline_rounded,
+            message: error.toString(),
+            isError: true,
+          ),
         ),
       ],
     );
   }
 }
 
-class _EmptySelectionState extends StatelessWidget {
-  const _EmptySelectionState();
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.label);
+
+  final String label;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      'No files selected yet. Pick one or more files and the app will '
-      'validate file-count, per-file, and batch-size limits before creating a draft.',
-      style: Theme.of(context).textTheme.bodyMedium,
-    );
-  }
-}
-
-class _EmptyDraftsState extends StatelessWidget {
-  const _EmptyDraftsState();
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      'No outgoing drafts yet. Resolve a recipient, pick files, and create a '
-      'draft to populate the sender queue.',
-      style: Theme.of(context).textTheme.bodyMedium,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 }
@@ -374,12 +314,11 @@ class _SelectedFileRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
       ),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Icon(
             Icons.insert_drive_file_rounded,
@@ -392,29 +331,24 @@ class _SelectedFileRow extends StatelessWidget {
               children: <Widget>[
                 Text(
                   file.name,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
-                  '${ByteCountFormatter.format(file.byteCount)} • ${file.mimeType}',
+                  ByteCountFormatter.format(file.byteCount),
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
-                if (file.byteCount == 0) ...<Widget>[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Zero-byte files are allowed and will still be tracked.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
               ],
             ),
           ),
           IconButton(
             onPressed: onRemove,
             icon: const Icon(Icons.close_rounded),
-            tooltip: 'Remove file',
+            tooltip: 'Remove',
           ),
         ],
       ),
@@ -429,14 +363,10 @@ class _ResolvedRecipientCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final subtitle = recipient.isOnline
-        ? 'Recipient is currently online.'
-        : 'Recipient is registered but not confirmed online.';
-
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
       ),
       padding: const EdgeInsets.all(16),
       child: Row(
@@ -444,18 +374,11 @@ class _ResolvedRecipientCard extends StatelessWidget {
           const Icon(Icons.verified_user_rounded),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  recipient.displayName ?? recipient.code.displayValue,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(subtitle),
-              ],
+            child: Text(
+              recipient.displayName ?? recipient.code.displayValue,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -521,19 +444,15 @@ class _DraftBatchCard extends StatelessWidget {
                 ),
               ),
               Chip(label: Text(ByteCountFormatter.format(batch.totalBytes))),
-              Chip(label: Text(_networkPolicyLabel(batch.networkPolicy))),
             ],
           ),
           const SizedBox(height: 12),
           TransferProgressSummary(
             batch: batch,
             statusOverride: switch (batch.status) {
-              TransferStatus.awaitingAcceptance =>
-                'Waiting for recipient acceptance',
-              TransferStatus.pendingRecipient =>
-                'Upload complete. Recipient download is next',
-              TransferStatus.completed =>
-                'Recipient downloaded and saved this batch',
+              TransferStatus.awaitingAcceptance => 'Waiting for recipient',
+              TransferStatus.pendingRecipient => 'Waiting for recipient to download',
+              TransferStatus.completed => 'Delivered',
               _ => null,
             },
           ),
@@ -556,30 +475,17 @@ class _DraftBatchCard extends StatelessWidget {
                               : Icons.cloud_upload_rounded,
                         ),
                   label: Text(
-                    batch.status == TransferStatus.failed
-                        ? 'Retry upload'
-                        : 'Start upload',
+                    batch.status == TransferStatus.failed ? 'Retry' : 'Upload',
                   ),
                 ),
               if (canCancel)
                 FilledButton.tonalIcon(
                   onPressed: isActionPending ? null : onCancel,
                   icon: const Icon(Icons.cancel_outlined),
-                  label: Text(
-                    batch.status == TransferStatus.uploading
-                        ? 'Cancel upload'
-                        : 'Cancel transfer',
-                  ),
+                  label: const Text('Cancel'),
                 ),
             ],
           ),
-          if (batch.status == TransferStatus.awaitingAcceptance) ...<Widget>[
-            const SizedBox(height: 12),
-            Text(
-              'Recipient must accept this transfer before upload can start.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
         ],
       ),
     );

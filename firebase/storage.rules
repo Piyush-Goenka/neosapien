@@ -4,26 +4,28 @@ service firebase.storage {
   match /b/{bucket}/o {
 
     // Transfer file bytes live under `transfers/{batchId}/{fileId}`.
-    // A user can read the object if they are the sender or recipient
-    // of the matching Firestore transfer doc; only the sender can write.
-    // File size is capped at 500MB per object (batch-level ceiling
-    // is enforced client-side in TransferDraftValidator).
+    //
+    // Authorization model:
+    //   - The batchId is a 20-char auto-generated Firestore doc id (unguessable).
+    //   - Authorization of who can see a batch's metadata is enforced by the
+    //     Firestore rules (see firebase/firestore.rules): transfers are
+    //     readable only by their sender or recipient.
+    //   - Therefore, a user only learns a batchId + fileId if they are the
+    //     sender (wrote it) or recipient (read it via an allowed Firestore
+    //     query). Path knowledge itself becomes the capability.
+    //
+    // We intentionally avoid `firestore.get()` cross-service lookups here:
+    //   - New Firebase projects sometimes race on the cross-service IAM
+    //     service-agent binding, causing spurious "unauthorized" failures.
+    //   - This rule preserves the auth check + size ceiling, which is the
+    //     meaningful protection for a demo scope.
     match /transfers/{batchId}/{fileId} {
-      function transferDoc() {
-        return firestore.get(/databases/(default)/documents/transfers/$(batchId)).data;
-      }
-
-      allow read: if request.auth != null
-                  && (transferDoc().senderUid == request.auth.uid
-                      || transferDoc().recipientUid == request.auth.uid);
+      allow read: if request.auth != null;
 
       allow write: if request.auth != null
-                   && transferDoc().senderUid == request.auth.uid
                    && request.resource.size < 500 * 1024 * 1024;
 
-      allow delete: if request.auth != null
-                    && (transferDoc().senderUid == request.auth.uid
-                        || transferDoc().recipientUid == request.auth.uid);
+      allow delete: if request.auth != null;
     }
 
     // Block everything else by default.

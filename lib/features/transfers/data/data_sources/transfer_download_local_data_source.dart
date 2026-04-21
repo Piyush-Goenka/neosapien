@@ -15,13 +15,13 @@ class TransferDownloadLocalDataSource {
     try {
       final encoded = await _secureStorage.read(key: _storageKey);
       if (encoded == null || encoded.isEmpty) {
-        return const <String, LocalDownloadedTransferBatch>{};
+        return <String, LocalDownloadedTransferBatch>{};
       }
 
       final json = jsonDecode(encoded);
       if (json is! Map<Object?, Object?>) {
         await clear();
-        return const <String, LocalDownloadedTransferBatch>{};
+        return <String, LocalDownloadedTransferBatch>{};
       }
 
       final result = <String, LocalDownloadedTransferBatch>{};

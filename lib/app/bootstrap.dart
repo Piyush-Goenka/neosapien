@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neo_sapien/app/app.dart';
+import 'package:neo_sapien/core/firebase/firebase_bootstrap_service.dart';
 import 'package:neo_sapien/core/providers/firebase_providers.dart';
 
 class NeoSapienBootstrap extends ConsumerWidget {
@@ -11,7 +12,22 @@ class NeoSapienBootstrap extends ConsumerWidget {
     final bootstrapState = ref.watch(firebaseBootstrapProvider);
 
     return bootstrapState.when(
-      data: (_) => const NeoSapienApp(),
+      data: (state) {
+        if (state.status == FirebaseBootstrapStatus.ready) {
+          return const NeoSapienApp();
+        }
+        final title = state.status == FirebaseBootstrapStatus.unconfigured
+            ? 'Firebase not configured'
+            : 'Firebase bootstrap failed';
+        final details = state.error != null
+            ? '${state.message}\n\nUnderlying error: ${state.error}'
+            : state.message;
+        return _BootstrapShell(
+          title: title,
+          message: details,
+          isError: true,
+        );
+      },
       loading: () {
         return const _BootstrapShell(
           title: 'Bootstrapping',

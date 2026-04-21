@@ -31,6 +31,21 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Runtime diagnostic — logged once at startup to confirm dart-defines reached
+  // the app. Safe to keep during development; remove for a release build.
+  final env = AppEnvironment.current;
+  // ignore: avoid_print
+  print(
+    '[NeoSapien boot] projectId=${env.firebase.projectId} '
+    'senderId=${env.firebase.messagingSenderId} '
+    'androidApp=${env.firebase.androidAppId != null} '
+    'iosApp=${env.firebase.iosAppId != null} '
+    'androidKey=${env.firebase.androidApiKey != null} '
+    'iosKey=${env.firebase.iosApiKey != null} '
+    'sharedKey=${env.firebase.apiKey != null}',
+  );
+
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   runApp(const ProviderScope(child: NeoSapienBootstrap()));
 }
