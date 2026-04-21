@@ -126,7 +126,7 @@ class NativeFilePickerImpl(
             val resolver = context.contentResolver
             val displayName = queryDisplayName(uri) ?: "picked_${System.currentTimeMillis()}"
             val reportedSize = queryReportedSize(uri)
-            val mime = resolver.type
+            val mime = resolver.getType(uri)
                 ?: MimeTypeMap.getSingleton()
                     .getMimeTypeFromExtension(MimeTypeMap.getFileExtensionFromUrl(displayName))
                 ?: "application/octet-stream"

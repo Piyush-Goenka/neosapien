@@ -194,8 +194,8 @@ These are already in the codebase or baked into the plan — calling them out so
   - Evidence: Pigeon contract for `NativeTransferHostApi` is ready; Kotlin impl not wired.
 - [ ] Bonus C: iOS background transfer (`URLSession` background config)
   - Evidence: Pigeon contract is ready; Swift impl not wired; blocked on Apple Developer enrollment for real-device APNs.
-- [ ] Bonus D: Native picker integration (SAF + UIDocumentPicker)
-  - Evidence: `TransferFileSelector` Strategy interface exists; native impl would replace `file_picker` via Riverpod override.
+- [x] Bonus D: Native picker integration (SAF + UIDocumentPicker)
+  - Evidence: [`NativeFilePickerImpl.kt`](android/app/src/main/kotlin/com/neosapien/assignment/neo_sapien/NativeFilePickerImpl.kt) (`ACTION_OPEN_DOCUMENT` via `ActivityResultLauncher`, content-URI → in-sandbox copy) + [`NativeFilePickerImpl.swift`](ios/Runner/NativeFilePickerImpl.swift) (`UIDocumentPickerViewController` with `asCopy: true`, re-copied into Caches for lifetime stability). [`NativeFilePickerTransferFileSelector`](lib/features/transfers/data/services/native_file_picker_transfer_file_selector.dart) wraps the Pigeon API; `transferFileSelectorProvider` resolves to it on mobile platforms, keeps `file_picker` as fallback for tests/desktop/web. `MainActivity` switched to `FlutterFragmentActivity` to get `registerForActivityResult`.
 - [x] Bonus E: Native save-to-gallery/downloads (MediaStore + PHPhotoLibrary)
   - Evidence: [`NativeMediaSaverImpl.kt`](android/app/src/main/kotlin/com/neosapien/assignment/neo_sapien/NativeMediaSaverImpl.kt) (MediaStore Images/Video/Audio/Downloads with atomic `IS_PENDING` publish) + [`NativeMediaSaverImpl.swift`](ios/Runner/NativeMediaSaverImpl.swift) (PHPhotoLibrary + UIActivityViewController fallback); UI entry point on every saved file in inbox via [`NativeSaveController`](lib/features/transfers/application/native_save_controller.dart).
 - [-] Bonus F: Nearby fallback transport

@@ -27,7 +27,7 @@ Send media by 8-character short code between any two phones on the public intern
 | Bonus A — Pigeon contract defined + generated | ✅ bindings shipped (Dart + Kotlin + Swift) |
 | Bonus B — Android background (WorkManager/FGS) | ❌ not implemented |
 | Bonus C — iOS background (URLSession) | ❌ not implemented |
-| Bonus D — native picker (SAF / UIDocumentPicker) | ❌ not implemented |
+| Bonus D — native picker (SAF / UIDocumentPicker) | ✅ both platforms via Pigeon |
 | Bonus E — native save (MediaStore / PHPhotoLibrary) | ✅ both platforms via Pigeon |
 | Bonus F — Nearby fallback transport | ❌ deferred |
 
@@ -257,9 +257,17 @@ The bonus track asks for one platform-channel integration done the right way —
 - **Dart Strategy wrapper** — [`NativeMediaSaver`](lib/features/transfers/data/services/native_media_saver.dart) keeps the Pigeon class out of the rest of the codebase.
 - **UI** — per-file Save icon button on every received file in [`inbox_screen.dart`](lib/features/inbox/presentation/screens/inbox_screen.dart), with pending spinner and success/error SnackBar.
 
+### Native picker (Bonus D)
+
+Same Pigeon-bridge pattern for file selection:
+
+- **Contract**: `NativeFilePickerHostApi.pickFiles(allowMultiple)` with `PickedFile` + `PickFilesResult` data classes in [`pigeons/native_transfer_bridge.dart`](pigeons/native_transfer_bridge.dart).
+- **Android**: [`NativeFilePickerImpl.kt`](android/app/src/main/kotlin/com/neosapien/assignment/neo_sapien/NativeFilePickerImpl.kt) launches `ACTION_OPEN_DOCUMENT` via `ActivityResultLauncher`, drains both single and clipData multi-pick URIs, streams each URI into `filesDir/neosapien_picked/<uuid>_<name>` so Dart gets a stable in-sandbox path. `MainActivity` switched from `FlutterActivity` to `FlutterFragmentActivity` so `registerForActivityResult` is available.
+- **iOS**: [`NativeFilePickerImpl.swift`](ios/Runner/NativeFilePickerImpl.swift) presents `UIDocumentPickerViewController(forOpeningContentTypes: [.data, .content, .item], asCopy: true)`; picked URLs are re-copied into `Library/Caches/neosapien_picked/` for lifetime stability.
+- **Dart wrapper**: [`NativeFilePickerTransferFileSelector`](lib/features/transfers/data/services/native_file_picker_transfer_file_selector.dart) implements `TransferFileSelector` via the Pigeon API; `transferFileSelectorProvider` resolves to this on `Platform.isAndroid || Platform.isIOS`, keeps `file_picker` as fallback for tests / desktop / web so nothing else breaks.
+
 ### What's intentionally NOT here
 
-- **Native picker (Bonus D)** — Strategy-pattern seam exists via [`TransferFileSelector`](lib/features/transfers/domain/services/transfer_file_selector.dart); `file_picker` is the current impl, a Pigeon-wired replacement is a drop-in but was not shipped.
 - **Native background transfer (Bonus B + C)** — Pigeon contract for `NativeTransferHostApi` exists (start/pause/resume/cancel/query + progress/state Flutter API), native impls not wired. Recorded in [`pigeons/native_transfer_bridge.dart`](pigeons/native_transfer_bridge.dart) as a ready seam.
 
 ---
@@ -311,8 +319,7 @@ Stated up-front so reviewers can score fairly:
 
 1. **Restart-from-zero on network drop**, not true chunk resume. Implementation seam is ready in the `TransferEngine` Strategy pattern for the native-background engines to pick up.
 2. **Native background transfer (Bonus B + C) not implemented**. Pigeon contract is scaffolded in [`pigeons/native_transfer_bridge.dart`](pigeons/native_transfer_bridge.dart) but code generation and native Kotlin/Swift sides have not been wired.
-3. **Native picker (Bonus D) not implemented**. Using `file_picker` package as the core slice; Strategy pattern via [`TransferFileSelector`](lib/features/transfers/domain/services/transfer_file_selector.dart) means a native impl is a drop-in.
-4. **Nearby transport (Bonus F) not implemented**. Explicitly deferred in the plan.
+3. **Nearby transport (Bonus F) not implemented**. Explicitly deferred in the plan.
 6. **TTL / expiry enforcement is client-side only today**. Batch docs carry an `expiresAt` field but no scheduled Cloud Function sweeps expired batches yet.
 7. **Device test matrix is "1 real + 1 emulator"**: real Android phone + Android emulator on Mac. Brief explicitly allows this. OEM-specific behaviors on physical Android devices have not been demonstrated.
 8. **iOS FCM push is not demonstrated.** The iOS simulator runs the full app end-to-end (identity, recipient lookup, upload/download, SHA-256 verify, save to app Documents), and cross-platform Android ↔ iOS transfers work live in the demo. What doesn't work on the iOS simulator — by Apple's platform design — is APNs/FCM push: simulators never receive push, and real-device push requires Apple Developer Program enrollment plus an APNs key uploaded to Firebase Console. The client-side wiring (`FcmTokenRegistrar`, `IncomingTransferFcmListener`, background `URLSession` entitlements in `Info.plist`) is complete and will work once those prerequisites are met. Closed-app discovery is therefore demonstrated on Android only.
