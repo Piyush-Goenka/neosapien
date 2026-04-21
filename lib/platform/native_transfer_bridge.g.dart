@@ -445,6 +445,127 @@ class SaveFileResult {
   int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
 }
 
+/// A single file picked by the platform-native document picker.
+///
+/// `localPath` is always a readable path inside the app sandbox — the native
+/// impl copies the picked file locally before returning, so the Dart side can
+/// open it without worrying about security-scoped resources (iOS) or content
+/// URI lifetime (Android).
+class PickedFile {
+  PickedFile({
+    required this.id,
+    required this.name,
+    required this.localPath,
+    required this.mimeType,
+    required this.byteCount,
+    this.sourceIdentifier,
+  });
+
+  String id;
+
+  String name;
+
+  String localPath;
+
+  String mimeType;
+
+  int byteCount;
+
+  String? sourceIdentifier;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      id,
+      name,
+      localPath,
+      mimeType,
+      byteCount,
+      sourceIdentifier,
+    ];
+  }
+
+  Object encode() {
+    return _toList();  }
+
+  static PickedFile decode(Object result) {
+    result as List<Object?>;
+    return PickedFile(
+      id: result[0]! as String,
+      name: result[1]! as String,
+      localPath: result[2]! as String,
+      mimeType: result[3]! as String,
+      byteCount: result[4]! as int,
+      sourceIdentifier: result[5] as String?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PickedFile || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(id, other.id) && _deepEquals(name, other.name) && _deepEquals(localPath, other.localPath) && _deepEquals(mimeType, other.mimeType) && _deepEquals(byteCount, other.byteCount) && _deepEquals(sourceIdentifier, other.sourceIdentifier);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+}
+
+class PickFilesResult {
+  PickFilesResult({
+    required this.files,
+    this.cancelled = false,
+    this.message,
+  });
+
+  List<PickedFile?> files;
+
+  bool cancelled;
+
+  String? message;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      files,
+      cancelled,
+      message,
+    ];
+  }
+
+  Object encode() {
+    return _toList();  }
+
+  static PickFilesResult decode(Object result) {
+    result as List<Object?>;
+    return PickFilesResult(
+      files: (result[0]! as List<Object?>).cast<PickedFile?>(),
+      cancelled: result[1]! as bool,
+      message: result[2] as String?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PickFilesResult || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(files, other.files) && _deepEquals(cancelled, other.cancelled) && _deepEquals(message, other.message);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+}
+
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
@@ -471,6 +592,12 @@ class _PigeonCodec extends StandardMessageCodec {
     }    else if (value is SaveFileResult) {
       buffer.putUint8(134);
       writeValue(buffer, value.encode());
+    }    else if (value is PickedFile) {
+      buffer.putUint8(135);
+      writeValue(buffer, value.encode());
+    }    else if (value is PickFilesResult) {
+      buffer.putUint8(136);
+      writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
     }
@@ -491,6 +618,10 @@ class _PigeonCodec extends StandardMessageCodec {
         return SaveFileRequest.decode(readValue(buffer)!);
       case 134:
         return SaveFileResult.decode(readValue(buffer)!);
+      case 135:
+        return PickedFile.decode(readValue(buffer)!);
+      case 136:
+        return PickFilesResult.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -639,6 +770,47 @@ class NativeMediaSaverHostApi {
     )
     ;
     return pigeonVar_replyValue! as SaveFileResult;
+  }
+}
+
+/// Native document-picker host API — Bonus D.
+///   Android: `ACTION_OPEN_DOCUMENT`
+///   iOS:     `UIDocumentPickerViewController`
+///
+/// Keeps a typed contract at the Pigeon boundary so neither side hand-rolls a
+/// method-channel string. Returns cancelled=true when the user dismisses
+/// the picker without choosing anything; returns an empty files list only if
+/// the OS reported success with zero URIs (rare).
+class NativeFilePickerHostApi {
+  /// Constructor for [NativeFilePickerHostApi].  The [binaryMessenger] named argument is
+  /// available for dependency injection.  If it is left null, the default
+  /// BinaryMessenger will be used which routes to the host platform.
+  NativeFilePickerHostApi({BinaryMessenger? binaryMessenger, String messageChannelSuffix = ''})
+      : pigeonVar_binaryMessenger = binaryMessenger,
+        pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
+  final BinaryMessenger? pigeonVar_binaryMessenger;
+
+  static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
+
+  final String pigeonVar_messageChannelSuffix;
+
+  Future<PickFilesResult> pickFiles(bool allowMultiple) async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.neo_sapien.NativeFilePickerHostApi.pickFiles$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[allowMultiple]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: false,
+    )
+    ;
+    return pigeonVar_replyValue! as PickFilesResult;
   }
 }
 

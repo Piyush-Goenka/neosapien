@@ -120,6 +120,52 @@ abstract class NativeMediaSaverHostApi {
   SaveFileResult saveFileToGallery(SaveFileRequest request);
 }
 
+/// A single file picked by the platform-native document picker.
+///
+/// `localPath` is always a readable path inside the app sandbox — the native
+/// impl copies the picked file locally before returning, so the Dart side can
+/// open it without worrying about security-scoped resources (iOS) or content
+/// URI lifetime (Android).
+class PickedFile {
+  PickedFile({
+    required this.id,
+    required this.name,
+    required this.localPath,
+    required this.mimeType,
+    required this.byteCount,
+    this.sourceIdentifier,
+  });
+
+  String id;
+  String name;
+  String localPath;
+  String mimeType;
+  int byteCount;
+  String? sourceIdentifier;
+}
+
+class PickFilesResult {
+  PickFilesResult({required this.files, this.cancelled = false, this.message});
+
+  List<PickedFile?> files;
+  bool cancelled;
+  String? message;
+}
+
+/// Native document-picker host API — Bonus D.
+///   Android: `ACTION_OPEN_DOCUMENT`
+///   iOS:     `UIDocumentPickerViewController`
+///
+/// Keeps a typed contract at the Pigeon boundary so neither side hand-rolls a
+/// method-channel string. Returns cancelled=true when the user dismisses
+/// the picker without choosing anything; returns an empty files list only if
+/// the OS reported success with zero URIs (rare).
+@HostApi()
+abstract class NativeFilePickerHostApi {
+  @async
+  PickFilesResult pickFiles(bool allowMultiple);
+}
+
 @FlutterApi()
 abstract class NativeTransferFlutterApi {
   void onProgress(NativeTransferProgressEvent event);

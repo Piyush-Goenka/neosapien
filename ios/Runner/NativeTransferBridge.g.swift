@@ -464,6 +464,110 @@ struct SaveFileResult: Hashable {
   }
 }
 
+/// A single file picked by the platform-native document picker.
+///
+/// `localPath` is always a readable path inside the app sandbox — the native
+/// impl copies the picked file locally before returning, so the Dart side can
+/// open it without worrying about security-scoped resources (iOS) or content
+/// URI lifetime (Android).
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct PickedFile: Hashable {
+  var id: String
+  var name: String
+  var localPath: String
+  var mimeType: String
+  var byteCount: Int64
+  var sourceIdentifier: String? = nil
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PickedFile? {
+    let id = pigeonVar_list[0] as! String
+    let name = pigeonVar_list[1] as! String
+    let localPath = pigeonVar_list[2] as! String
+    let mimeType = pigeonVar_list[3] as! String
+    let byteCount = pigeonVar_list[4] as! Int64
+    let sourceIdentifier: String? = nilOrValue(pigeonVar_list[5])
+
+    return PickedFile(
+      id: id,
+      name: name,
+      localPath: localPath,
+      mimeType: mimeType,
+      byteCount: byteCount,
+      sourceIdentifier: sourceIdentifier
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      id,
+      name,
+      localPath,
+      mimeType,
+      byteCount,
+      sourceIdentifier,
+    ]
+  }
+  static func == (lhs: PickedFile, rhs: PickedFile) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return deepEqualsNativeTransferBridge(lhs.id, rhs.id) && deepEqualsNativeTransferBridge(lhs.name, rhs.name) && deepEqualsNativeTransferBridge(lhs.localPath, rhs.localPath) && deepEqualsNativeTransferBridge(lhs.mimeType, rhs.mimeType) && deepEqualsNativeTransferBridge(lhs.byteCount, rhs.byteCount) && deepEqualsNativeTransferBridge(lhs.sourceIdentifier, rhs.sourceIdentifier)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PickedFile")
+    deepHashNativeTransferBridge(value: id, hasher: &hasher)
+    deepHashNativeTransferBridge(value: name, hasher: &hasher)
+    deepHashNativeTransferBridge(value: localPath, hasher: &hasher)
+    deepHashNativeTransferBridge(value: mimeType, hasher: &hasher)
+    deepHashNativeTransferBridge(value: byteCount, hasher: &hasher)
+    deepHashNativeTransferBridge(value: sourceIdentifier, hasher: &hasher)
+  }
+}
+
+/// Generated class from Pigeon that represents data sent in messages.
+struct PickFilesResult: Hashable {
+  var files: [PickedFile?]
+  var cancelled: Bool
+  var message: String? = nil
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> PickFilesResult? {
+    let files = pigeonVar_list[0] as! [PickedFile?]
+    let cancelled = pigeonVar_list[1] as! Bool
+    let message: String? = nilOrValue(pigeonVar_list[2])
+
+    return PickFilesResult(
+      files: files,
+      cancelled: cancelled,
+      message: message
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      files,
+      cancelled,
+      message,
+    ]
+  }
+  static func == (lhs: PickFilesResult, rhs: PickFilesResult) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return deepEqualsNativeTransferBridge(lhs.files, rhs.files) && deepEqualsNativeTransferBridge(lhs.cancelled, rhs.cancelled) && deepEqualsNativeTransferBridge(lhs.message, rhs.message)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("PickFilesResult")
+    deepHashNativeTransferBridge(value: files, hasher: &hasher)
+    deepHashNativeTransferBridge(value: cancelled, hasher: &hasher)
+    deepHashNativeTransferBridge(value: message, hasher: &hasher)
+  }
+}
+
 private class NativeTransferBridgePigeonCodecReader: FlutterStandardReader {
   override func readValue(ofType type: UInt8) -> Any? {
     switch type {
@@ -479,6 +583,10 @@ private class NativeTransferBridgePigeonCodecReader: FlutterStandardReader {
       return SaveFileRequest.fromList(self.readValue() as! [Any?])
     case 134:
       return SaveFileResult.fromList(self.readValue() as! [Any?])
+    case 135:
+      return PickedFile.fromList(self.readValue() as! [Any?])
+    case 136:
+      return PickFilesResult.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
     }
@@ -504,6 +612,12 @@ private class NativeTransferBridgePigeonCodecWriter: FlutterStandardWriter {
       super.writeValue(value.toList())
     } else if let value = value as? SaveFileResult {
       super.writeByte(134)
+      super.writeValue(value.toList())
+    } else if let value = value as? PickedFile {
+      super.writeByte(135)
+      super.writeValue(value.toList())
+    } else if let value = value as? PickFilesResult {
+      super.writeByte(136)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -647,6 +761,45 @@ class NativeMediaSaverHostApiSetup {
       }
     } else {
       saveFileToGalleryChannel.setMessageHandler(nil)
+    }
+  }
+}
+/// Native document-picker host API — Bonus D.
+///   Android: `ACTION_OPEN_DOCUMENT`
+///   iOS:     `UIDocumentPickerViewController`
+///
+/// Keeps a typed contract at the Pigeon boundary so neither side hand-rolls a
+/// method-channel string. Returns cancelled=true when the user dismisses
+/// the picker without choosing anything; returns an empty files list only if
+/// the OS reported success with zero URIs (rare).
+///
+/// Generated protocol from Pigeon that represents a handler of messages from Flutter.
+protocol NativeFilePickerHostApi {
+  func pickFiles(allowMultiple: Bool, completion: @escaping (Result<PickFilesResult, Error>) -> Void)
+}
+
+/// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
+class NativeFilePickerHostApiSetup {
+  static var codec: FlutterStandardMessageCodec { NativeTransferBridgePigeonCodec.shared }
+  /// Sets up an instance of `NativeFilePickerHostApi` to handle messages through the `binaryMessenger`.
+  static func setUp(binaryMessenger: FlutterBinaryMessenger, api: NativeFilePickerHostApi?, messageChannelSuffix: String = "") {
+    let channelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
+    let pickFilesChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.neo_sapien.NativeFilePickerHostApi.pickFiles\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      pickFilesChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let allowMultipleArg = args[0] as! Bool
+        api.pickFiles(allowMultiple: allowMultipleArg) { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      pickFilesChannel.setMessageHandler(nil)
     }
   }
 }

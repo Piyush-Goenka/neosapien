@@ -484,6 +484,111 @@ data class SaveFileResult (
     return result
   }
 }
+
+/**
+ * A single file picked by the platform-native document picker.
+ *
+ * `localPath` is always a readable path inside the app sandbox — the native
+ * impl copies the picked file locally before returning, so the Dart side can
+ * open it without worrying about security-scoped resources (iOS) or content
+ * URI lifetime (Android).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class PickedFile (
+  val id: String,
+  val name: String,
+  val localPath: String,
+  val mimeType: String,
+  val byteCount: Long,
+  val sourceIdentifier: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): PickedFile {
+      val id = pigeonVar_list[0] as String
+      val name = pigeonVar_list[1] as String
+      val localPath = pigeonVar_list[2] as String
+      val mimeType = pigeonVar_list[3] as String
+      val byteCount = pigeonVar_list[4] as Long
+      val sourceIdentifier = pigeonVar_list[5] as String?
+      return PickedFile(id, name, localPath, mimeType, byteCount, sourceIdentifier)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      id,
+      name,
+      localPath,
+      mimeType,
+      byteCount,
+      sourceIdentifier,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as PickedFile
+    return NativeTransferBridgePigeonUtils.deepEquals(this.id, other.id) && NativeTransferBridgePigeonUtils.deepEquals(this.name, other.name) && NativeTransferBridgePigeonUtils.deepEquals(this.localPath, other.localPath) && NativeTransferBridgePigeonUtils.deepEquals(this.mimeType, other.mimeType) && NativeTransferBridgePigeonUtils.deepEquals(this.byteCount, other.byteCount) && NativeTransferBridgePigeonUtils.deepEquals(this.sourceIdentifier, other.sourceIdentifier)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NativeTransferBridgePigeonUtils.deepHash(this.id)
+    result = 31 * result + NativeTransferBridgePigeonUtils.deepHash(this.name)
+    result = 31 * result + NativeTransferBridgePigeonUtils.deepHash(this.localPath)
+    result = 31 * result + NativeTransferBridgePigeonUtils.deepHash(this.mimeType)
+    result = 31 * result + NativeTransferBridgePigeonUtils.deepHash(this.byteCount)
+    result = 31 * result + NativeTransferBridgePigeonUtils.deepHash(this.sourceIdentifier)
+    return result
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class PickFilesResult (
+  val files: List<PickedFile?>,
+  val cancelled: Boolean,
+  val message: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): PickFilesResult {
+      val files = pigeonVar_list[0] as List<PickedFile?>
+      val cancelled = pigeonVar_list[1] as Boolean
+      val message = pigeonVar_list[2] as String?
+      return PickFilesResult(files, cancelled, message)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      files,
+      cancelled,
+      message,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as PickFilesResult
+    return NativeTransferBridgePigeonUtils.deepEquals(this.files, other.files) && NativeTransferBridgePigeonUtils.deepEquals(this.cancelled, other.cancelled) && NativeTransferBridgePigeonUtils.deepEquals(this.message, other.message)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + NativeTransferBridgePigeonUtils.deepHash(this.files)
+    result = 31 * result + NativeTransferBridgePigeonUtils.deepHash(this.cancelled)
+    result = 31 * result + NativeTransferBridgePigeonUtils.deepHash(this.message)
+    return result
+  }
+}
 private open class NativeTransferBridgePigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
@@ -517,6 +622,16 @@ private open class NativeTransferBridgePigeonCodec : StandardMessageCodec() {
           SaveFileResult.fromList(it)
         }
       }
+      135.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          PickedFile.fromList(it)
+        }
+      }
+      136.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          PickFilesResult.fromList(it)
+        }
+      }
       else -> super.readValueOfType(type, buffer)
     }
   }
@@ -544,6 +659,14 @@ private open class NativeTransferBridgePigeonCodec : StandardMessageCodec() {
       }
       is SaveFileResult -> {
         stream.write(134)
+        writeValue(stream, value.toList())
+      }
+      is PickedFile -> {
+        stream.write(135)
+        writeValue(stream, value.toList())
+      }
+      is PickFilesResult -> {
+        stream.write(136)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -681,6 +804,53 @@ interface NativeMediaSaverHostApi {
             val args = message as List<Any?>
             val requestArg = args[0] as SaveFileRequest
             api.saveFileToGallery(requestArg) { result: Result<SaveFileResult> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(NativeTransferBridgePigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(NativeTransferBridgePigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+    }
+  }
+}
+/**
+ * Native document-picker host API — Bonus D.
+ *   Android: `ACTION_OPEN_DOCUMENT`
+ *   iOS:     `UIDocumentPickerViewController`
+ *
+ * Keeps a typed contract at the Pigeon boundary so neither side hand-rolls a
+ * method-channel string. Returns cancelled=true when the user dismisses
+ * the picker without choosing anything; returns an empty files list only if
+ * the OS reported success with zero URIs (rare).
+ *
+ * Generated interface from Pigeon that represents a handler of messages from Flutter.
+ */
+interface NativeFilePickerHostApi {
+  fun pickFiles(allowMultiple: Boolean, callback: (Result<PickFilesResult>) -> Unit)
+
+  companion object {
+    /** The codec used by NativeFilePickerHostApi. */
+    val codec: MessageCodec<Any?> by lazy {
+      NativeTransferBridgePigeonCodec()
+    }
+    /** Sets up an instance of `NativeFilePickerHostApi` to handle messages through the `binaryMessenger`. */
+    @JvmOverloads
+    fun setUp(binaryMessenger: BinaryMessenger, api: NativeFilePickerHostApi?, messageChannelSuffix: String = "") {
+      val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.neo_sapien.NativeFilePickerHostApi.pickFiles$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val allowMultipleArg = args[0] as Boolean
+            api.pickFiles(allowMultipleArg) { result: Result<PickFilesResult> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(NativeTransferBridgePigeonUtils.wrapError(error))
