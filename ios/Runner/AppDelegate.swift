@@ -4,6 +4,7 @@ import UIKit
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private var mediaSaver: NativeMediaSaverImpl?
+  private var filePicker: NativeFilePickerImpl?
 
   override func application(
     _ application: UIApplication,
@@ -11,13 +12,21 @@ import UIKit
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
 
-    // Register the Bonus E native-save Pigeon host API.
     if let controller = window?.rootViewController as? FlutterViewController {
+      // Bonus E — native save (PHPhotoLibrary + share sheet).
       let saver = NativeMediaSaverImpl()
       mediaSaver = saver
       NativeMediaSaverHostApiSetup.setUp(
         binaryMessenger: controller.binaryMessenger,
         api: saver
+      )
+
+      // Bonus D — native file picker (UIDocumentPickerViewController).
+      let picker = NativeFilePickerImpl()
+      filePicker = picker
+      NativeFilePickerHostApiSetup.setUp(
+        binaryMessenger: controller.binaryMessenger,
+        api: picker
       )
     }
 
