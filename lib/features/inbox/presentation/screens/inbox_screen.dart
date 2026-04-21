@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neo_sapien/app/router/app_section.dart';
 import 'package:neo_sapien/core/utils/byte_count_formatter.dart';
+import 'package:neo_sapien/features/transfers/application/native_save_controller.dart';
 import 'package:neo_sapien/features/transfers/application/transfer_batch_action_controller.dart';
 import 'package:neo_sapien/features/transfers/application/transfer_draft_controller.dart';
 import 'package:neo_sapien/features/transfers/domain/entities/transfer_batch.dart';
@@ -374,13 +375,13 @@ class _CompletedBatchCard extends StatelessWidget {
   }
 }
 
-class _SavedFilesList extends StatelessWidget {
+class _SavedFilesList extends ConsumerWidget {
   const _SavedFilesList({required this.batch});
 
   final TransferBatch batch;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final savedFiles = batch.files
         .where((file) => file.localPath != null && file.localPath!.isNotEmpty)
         .toList(growable: false);
@@ -389,11 +390,45 @@ class _SavedFilesList extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
+    ref.listen<NativeSaveState>(nativeSaveControllerProvider, (previous, next) {
+      final outcome = next.lastOutcome;
+      if (outcome == null) {
+        return;
+      }
+      if (previous?.lastOutcome == outcome) {
+        return;
+      }
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      if (messenger == null) {
+        return;
+      }
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            outcome.success
+                ? 'Saved ${outcome.fileName} to the device.'
+                : (outcome.message ?? 'Save failed for ${outcome.fileName}.'),
+          ),
+          backgroundColor: outcome.success
+              ? null
+              : Theme.of(context).colorScheme.errorContainer,
+        ),
+      );
+    });
+
+    final saveState = ref.watch(nativeSaveControllerProvider);
+    final saveController = ref.read(nativeSaveControllerProvider.notifier);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         for (var index = 0; index < savedFiles.length; index += 1) ...<Widget>[
-          _SavedFileRow(file: savedFiles[index]),
+          _SavedFileRow(
+            file: savedFiles[index],
+            isSaving: saveState.isPending(savedFiles[index].id),
+            onSave: () => saveController.save(savedFiles[index]),
+          ),
           if (index < savedFiles.length - 1) const SizedBox(height: 8),
         ],
       ],
@@ -402,14 +437,20 @@ class _SavedFilesList extends StatelessWidget {
 }
 
 class _SavedFileRow extends StatelessWidget {
-  const _SavedFileRow({required this.file});
+  const _SavedFileRow({
+    required this.file,
+    required this.isSaving,
+    required this.onSave,
+  });
 
   final TransferFile file;
+  final bool isSaving;
+  final VoidCallback onSave;
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
         Icon(
           Icons.download_done_rounded,
@@ -435,6 +476,17 @@ class _SavedFileRow extends StatelessWidget {
               ),
             ],
           ),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          onPressed: isSaving ? null : onSave,
+          tooltip: 'Save to device',
+          icon: isSaving
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.save_alt_rounded),
         ),
       ],
     );

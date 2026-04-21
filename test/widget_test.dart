@@ -24,10 +24,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('NeoSapien'), findsOneWidget);
-    expect(find.text('IDENTITY BOOTSTRAP'), findsOneWidget);
+    expect(find.text('Your code'), findsOneWidget);
     expect(find.text('ABCD-EFGH'), findsOneWidget);
-    expect(find.text('Send'), findsOneWidget);
-    expect(find.text('Inbox'), findsOneWidget);
+    expect(find.text('Send files'), findsOneWidget);
+    expect(find.text('Open inbox'), findsOneWidget);
     expect(find.text('Profile'), findsOneWidget);
   });
 }
