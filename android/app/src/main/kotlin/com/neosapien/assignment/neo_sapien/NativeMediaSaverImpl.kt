@@ -10,21 +10,19 @@ import android.webkit.MimeTypeMap
 import java.io.File
 import java.io.FileInputStream
 
-/**
- * Android implementation of the Pigeon `NativeMediaSaverHostApi` contract.
- *
- * Saves received files into the platform's scoped-storage media roots:
- *   - `image/*` → `MediaStore.Images`      (Pictures/NeoSapien)
- *   - `video/*` → `MediaStore.Video`       (Movies/NeoSapien)
- *   - `audio/*` → `MediaStore.Audio`       (Music/NeoSapien)
- *   - other    → `MediaStore.Downloads`    (Download/NeoSapien)  [API 29+]
- *
- * No `WRITE_EXTERNAL_STORAGE` runtime permission is required on API 29+
- * because we only write through MediaStore inside the collection the app
- * itself owns. On API 28 and lower, `MediaStore.Downloads` does not exist
- * and we fall back to the app-scoped `Environment.DIRECTORY_DOWNLOADS`
- * path; the README documents that as the compatibility floor.
- */
+// Android implementation of the Pigeon NativeMediaSaverHostApi contract.
+//
+// Routes received files into the platform's scoped-storage media roots
+// by MIME prefix:
+//   image  -> MediaStore.Images       (Pictures/NeoSapien)
+//   video  -> MediaStore.Video        (Movies/NeoSapien)
+//   audio  -> MediaStore.Audio        (Music/NeoSapien)
+//   other  -> MediaStore.Downloads    (Download/NeoSapien)  [API 29+]
+//
+// No WRITE_EXTERNAL_STORAGE runtime permission is required on API 29+
+// because we only write through MediaStore inside the collection the
+// app itself owns. On API 28 and lower, MediaStore.Downloads does not
+// exist; the README documents that as the compatibility floor.
 class NativeMediaSaverImpl(private val context: Context) : NativeMediaSaverHostApi {
 
     override fun saveFileToGallery(
