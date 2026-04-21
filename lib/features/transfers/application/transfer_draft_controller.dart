@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:neo_sapien/core/errors/app_exception.dart';
@@ -12,6 +14,7 @@ import 'package:neo_sapien/features/transfers/data/repositories/hybrid_transfer_
 import 'package:neo_sapien/features/transfers/data/repositories/in_memory_transfer_repository.dart';
 import 'package:neo_sapien/features/transfers/data/services/file_picker_transfer_file_selector.dart';
 import 'package:neo_sapien/features/transfers/data/services/firebase_storage_transfer_engine.dart';
+import 'package:neo_sapien/features/transfers/data/services/native_file_picker_transfer_file_selector.dart';
 import 'package:neo_sapien/features/transfers/data/services/received_transfer_file_store.dart';
 import 'package:neo_sapien/features/transfers/data/services/transfer_integrity_service.dart';
 import 'package:neo_sapien/features/transfers/data/services/transfer_recovery_service.dart';
@@ -99,6 +102,13 @@ final transferRecoveryBootProvider = FutureProvider<int>((ref) async {
 });
 
 final transferFileSelectorProvider = Provider<TransferFileSelector>((ref) {
+  // Bonus D — prefer the Pigeon-backed native picker on mobile
+  // (ACTION_OPEN_DOCUMENT on Android, UIDocumentPickerViewController on iOS).
+  // Any other platform falls back to the `file_picker` package so tests,
+  // desktop runs, and web debug builds stay unaffected.
+  if (Platform.isAndroid || Platform.isIOS) {
+    return NativeFilePickerTransferFileSelector();
+  }
   return const FilePickerTransferFileSelector();
 });
 
