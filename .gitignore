@@ -36,7 +36,8 @@ migrate_working_dir/
 .env.*
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
-lib/platform/**/*.g.dart
+# NOTE: Pigeon-generated Dart/Kotlin/Swift files ARE committed so the repo
+# is clone-and-run. Regenerate with `dart run pigeon --input pigeons/...`.
 
 # Firebase Functions
 functions/node_modules/

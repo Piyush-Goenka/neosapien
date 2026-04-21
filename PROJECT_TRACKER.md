@@ -281,18 +281,31 @@ These are already in the codebase or baked into the plan — calling them out so
 - [ ] Drive package — A11.
 
 ## 7. Device And Test Matrix
-- Android emulator (Mac host): TBD — to be filled in A11.
-- Android OS version: TBD.
-- iPhone physical device: YES — owner-supplied.
-- iOS version: TBD.
-- Test date: 2026-04-20.
-- Last successful Android -> iPhone run:
-- Last successful iPhone -> Android run:
-- Last successful background recovery run on Android:
-- Last successful background recovery run on iPhone:
-- Known platform-specific issues:
 
-Brief explicitly allows "one physical + one emulator"; iPhone is the physical device, Android is the emulator. Document this choice honestly in README.
+| Device | Role | OS | Used for |
+|---|---|---|---|
+| Android physical phone | Sender + recipient | Android (personal device) | Happy-path upload / download, FCM closed-app push, cross-device send to emulator |
+| Android emulator on Mac | Sender + recipient | Android 14, API 34 (Pixel image, Google Play) | Cross-device pair with the physical phone; closed-app FCM recipient |
+| iOS simulator on Mac | Sender + recipient | iOS 26.1, iPhone 16e | Cross-platform transfer parity demo (Android ↔ iOS); FCM push **not** verifiable — simulator platform limit |
+| MacBook Pro | Developer host | macOS 15.7.4 | Xcode 26.3, Firebase CLI, Flutter 3.38.5 / Dart 3.10.4 |
+
+Brief explicitly allows "one physical + one emulator" as the minimum — setup exceeds that with an additional iOS simulator for cross-platform parity.
+
+### Verified runs (this session, 2026-04-21)
+- Android phone → Android emulator: happy-path transfer ✅
+- Android emulator → Android phone: reverse direction ✅
+- Android phone → iOS simulator: cross-platform transfer ✅
+- Bad recipient code fast-fail ✅
+- Self-send block ✅
+- Wi-Fi toggled off mid-upload, on → batch auto-resumed ✅
+- Multi-file batch with Wi-Fi toggle → both files delivered ✅
+- Emulator app force-killed, new batch from phone → FCM push landed, deep-link opened inbox ✅
+- Download completed, SHA-256 verified, saved under `Documents/neo_sapien_received/{batchId}/` ✅
+
+### Known platform-specific gaps
+- iOS FCM push requires Apple Developer enrollment + APNs key upload (wired client-side, not demo-able in this environment).
+- OEM battery killers on non-stock Android not tested (stock Pixel emulator used).
+- Apple Developer free-signing on a real iPhone not attempted — iOS demo uses simulator only.
 
 ## 8. Risk Register
 - Risk: Blaze billing not enabled in time to deploy Cloud Function for FCM.

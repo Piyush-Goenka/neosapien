@@ -3,6 +3,7 @@ import 'package:pigeon/pigeon.dart';
 @ConfigurePigeon(
   PigeonOptions(
     dartOut: 'lib/platform/native_transfer_bridge.g.dart',
+    dartPackageName: 'neo_sapien',
     kotlinOut:
         'android/app/src/main/kotlin/com/neosapien/assignment/neo_sapien/NativeTransferBridge.g.kt',
     kotlinOptions: KotlinOptions(
@@ -69,6 +70,34 @@ class NativeCommandResult {
   String? message;
 }
 
+/// Request to save a received file into the platform's native media store:
+/// `PHPhotoLibrary` / Files-app share sheet on iOS,
+/// `MediaStore.Downloads` / `MediaStore.Images` / `MediaStore.Video` on Android.
+class SaveFileRequest {
+  SaveFileRequest({
+    required this.localPath,
+    required this.mimeType,
+    required this.displayName,
+  });
+
+  String localPath;
+  String mimeType;
+  String displayName;
+}
+
+/// Outcome of a native save operation.
+///
+/// `savedUri` is filled by Android (the MediaStore content:// URI) so the
+/// caller can later surface an "Open" action; iOS does not return a usable
+/// URI (Photos saves are identifier-based), so this stays null.
+class SaveFileResult {
+  SaveFileResult({required this.success, this.savedUri, this.message});
+
+  bool success;
+  String? savedUri;
+  String? message;
+}
+
 @HostApi()
 abstract class NativeTransferHostApi {
   NativeCommandResult startTransfer(NativeTransferJob job);
@@ -80,6 +109,15 @@ abstract class NativeTransferHostApi {
   NativeCommandResult cancelTransfer(String transferId);
 
   List<NativeTransferSnapshot?> queryActiveTransfers();
+}
+
+/// Thin host API specifically for native media save — Bonus E.
+/// Kept separate from `NativeTransferHostApi` so the two bonus tracks
+/// (background transfer + native save) can ship independently.
+@HostApi()
+abstract class NativeMediaSaverHostApi {
+  @async
+  SaveFileResult saveFileToGallery(SaveFileRequest request);
 }
 
 @FlutterApi()
